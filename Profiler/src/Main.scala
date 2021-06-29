@@ -19,4 +19,5 @@ def printHelp(): Unit =
              |  input=[file,file...]  : Input files to profile. Expected to be .hex with a .elf of the same name in the same directory
              |  profilerFlags=[flags] : Flags that will be given to the profilers makefile
              |  bootAt=[address]      : Address to start execution at (default 80000000)
+             |  exclude=[name,name...]: Functions to be excluded from the call graph
   """.stripMargin)
