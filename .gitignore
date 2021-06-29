@@ -1,0 +1,11 @@
+# IDE files and folders
+.bloop
+.metals
+.vscode
+
+# Output files and folders
+out
+obj_dir
+data
+results
+VexRiscv.v
