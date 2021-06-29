@@ -9,6 +9,36 @@ which will take care of everything else in this direction. In order to profile y
 
 ## Usage
 
+The profiler generates raw traces by watching changes in the **mscratch** register, which must be accessable in the simulation. 
+The easiest way to achive this is using the CSRPlugin shipped with this repo, which is similar to the original plugin with the mscratch 
+register made visible.
+
+To insert meaningful values in this register, the -finstrument-functions flag for gcc can be used, which inserts function calls 
+at the start and end of every function.
+
+```c
+// Function to call upon entering any function (except this one)
+void __attribute__((always_inline)) __attribute__((no_instrument_function)) __cyg_profile_func_enter(void *this_fn,
+                                                                                                     __attribute__((unused)) void *call_site)
+{
+    // Write PC of entered function into mscratch
+    __asm__ volatile("csrw mscratch, %0"
+                     :
+                     : "r"(this_fn));
+}
+
+// Function to call upon leaving any function (except this one)
+void __attribute__((always_inline)) __attribute__((no_instrument_function)) __cyg_profile_func_exit(__attribute__((unused)) void *this_fn,
+                                                                                                    __attribute__((unused)) void *call_site)
+{
+    // Write magic number 1 into mscratch
+    __asm__ volatile("csrwi mscratch, 0x1");
+}
+```
+
+Manual access is also possible. The profiler automatically resolves addresses to their corresponding symbols, so one should use 
+values which are contained in the symbol table.
+
 ```
 Help for VexRiscv Profiler
 Usage with source: mill      Profiler.run      [options]
