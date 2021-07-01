@@ -7,6 +7,8 @@ The tool itself is written in Scala3 and needs only a java runtime and the build
 which will take care of everything else in this direction. In order to profile your program, you additionally need a C++ compiler 
 (preferably g++) and verilator.
 
+In order to resolve symbols, the **riscv32-unknown-elf-objdump** must be avaiable on the path.
+
 ## Usage
 
 The profiler generates raw traces by watching changes in the **mscratch** register, which must be accessable in the simulation. 
@@ -37,7 +39,18 @@ void __attribute__((always_inline)) __attribute__((no_instrument_function)) __cy
 ```
 
 Manual access is also possible. The profiler automatically resolves addresses to their corresponding symbols, so one should use 
-values which are contained in the symbol table.
+values which are contained in the symbol table. For instance:
+
+```
+.global measurement2
+measurement2:
+    la x1, measurement2
+    csrw mscratch, x1
+    ...
+    ...
+    ...
+    csrwi mscratch, 0x1
+```
 
 ```
 Help for VexRiscv Profiler
