@@ -7,6 +7,7 @@ import java.util.Date
 import java.text.SimpleDateFormat
 
 import scalatags.Text.all._
+import scala.util._
 
 object ManualProfiling {
 
@@ -64,78 +65,22 @@ object ManualProfiling {
     // HQC
     val hqcTasks =
       if (hqc)
-        for (version <- hqcVersions.take(take)) yield () => {
-          if (doProfile) {
-            profile(s"../hqc/hqc-$version/bin/hqc-$version.hex", s"data/hqc-$version", debuggedFunction, desiredCalls, bootAt)
-            println(f"Done profiling HQC-$version")
-          }
-          if (doAnalysis) {
-            analyse(
-              s"data/hqc-$version",
-              s"../hqc/hqc-$version/bin/hqc-$version.elf",
-              s"results/hqc-$version",
-              filter,
-              debuggedFunction,
-              graph,
-              exclude
-            )
-            println(f"Done analyzing HQC-$version")
-          }
-
-        }
+        for (version <- hqcVersions.take(take))
+          yield Task(s"../hqc/hqc-$version/bin/hqc-$version.hex")
       else Nil
 
     // McEliece
     val mcElieceTasks =
       if (mceliece)
-        for (vers <- mcelieceVersions.take(take); variant <- Seq("", "f").take(take)) yield () => {
-          val version = f"$vers$variant"
-          if (doProfile) {
-            profile(
-              s"../McEliece/mceliece$version/bin/mceliece$version.hex",
-              s"data/mceliece$version",
-              debuggedFunction,
-              desiredCalls,
-              bootAt
-            )
-            println(f"Done profiling McEliece$version")
-          }
-          if (doAnalysis) {
-            analyse(
-              s"data/mceliece$version",
-              s"../McEliece/mceliece$version/bin/mceliece$version.elf",
-              s"results/mceliece$version",
-              filter,
-              debuggedFunction,
-              graph,
-              exclude
-            )
-            println(f"Done analyzing McEliece$version")
-          }
-        }
+        for (vers <- mcelieceVersions.take(take); variant <- Seq("", "f").take(take))
+          yield Task(s"../McEliece/mceliece$vers$variant/bin/mceliece$vers$variant.hex")
       else Nil
 
     // BIKE
     val bikeTasks =
       if (bike)
-        for (version <- bikeVersions.take(take)) yield () => {
-          if (doProfile) {
-            profile(s"../BIKE-Additional/bin/bike-$version.hex", s"data/bike-$version", debuggedFunction, desiredCalls, bootAt)
-            println(s"Done profiling BIKE-$version")
-          }
-          if (doAnalysis) {
-            analyse(
-              s"data/bike-$version",
-              s"../BIKE-Additional/bin/bike-$version.elf",
-              s"results/bike-$version",
-              filter,
-              debuggedFunction,
-              graph,
-              exclude
-            )
-            println(s"Done analyzing BIKE-$version")
-          }
-        }
+        for (version <- bikeVersions.take(take))
+          yield Task(s"../BIKE-Additional/bin/bike-$version.hex")
       else Nil
 
     // Manual tasks
@@ -143,51 +88,40 @@ object ManualProfiling {
       case None => Nil
       case Some(array) =>
         for (file <- array.toList)
-          yield () => {
-            if (file.endsWith(".hex")) {
-              val name = file.split("/").last.split(".hex").head
-              val dataFile = s"data/$name"
-              if (doProfile) {
-                profile(file, dataFile, debuggedFunction, desiredCalls, bootAt)
-                println(s"Done profiling $name")
-              }
-              if (doAnalysis) {
-                analyse(
-                  dataFile,
-                  s"${file.split(".hex").head}.elf",
-                  s"results/$name",
-                  filter,
-                  debuggedFunction,
-                  graph,
-                  exclude
-                )
-                println(s"Done analysing $name")
-              }
-            } else println(s"input file $file is no .hex")
-          }
+          yield Task(file)
     }
 
     // Excute in parallel
     val tasks = hqcTasks ::: mcElieceTasks ::: bikeTasks ::: manualTasks
     println(s"Start execution of ${tasks.length} tasks")
-    tasks.par.foreach(_.apply())
+    tasks.par.foreach(_.execute(doProfile, doAnalysis, debuggedFunction, desiredCalls, bootAt, filter, graph, exclude))
   }
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, debuggedFunction: Option[String], calls: Int, bootAt: String): Unit = {
+  def profile(hexFile: String, dataFile: String, debuggedFunction: Option[String], calls: Int, bootAt: String): Option[String] = {
     debuggedFunction match {
       case None =>
         // Call profiler
-        (s"./obj_dir/VVexRiscv $hexFile $bootAt 1" #> File(dataFile).toJava).!
+        try {
+          (s"./obj_dir/VVexRiscv $hexFile $bootAt 1" #> File(dataFile).toJava).!
+          None
+        } catch case e: RuntimeException => Some("The profiler exited with a non zero exit value")
       case Some(func) =>
         // Get function address from symbol table
-        val functionAddress =
-          (s"/home/lab/bin/riscv/rv32im/bin/riscv32-unknown-elf-objdump -t ${hexFile.replace(".hex", ".elf")}" #|
-            // Match with grep the function name as a single word
-            raw"grep -P '\b$func\b'").!!.split(" ").head.strip
+        try {
+          val functionAddress =
+            (s"riscv32-unknown-elf-objdump -t ${hexFile.replace(".hex", ".elf")}" #|
+              // Match with grep the function name as a single word
+              raw"grep -P '\b$func\b'").!!.split(" ").head.strip
 
-        // Call profiler
-        (s"./obj_dir/VVexRiscv $hexFile $bootAt 2 $functionAddress $calls" #> File(s"$dataFile-$func").toJava).!
+          // Call profiler
+          try {
+            (s"./obj_dir/VVexRiscv $hexFile $bootAt 2 $functionAddress $calls" #> File(s"$dataFile-$func").toJava).!
+            None
+          } catch case e: RuntimeException => Some("The profiler exited with a non zero exit value")
+
+        } catch case e: RuntimeException => Some(s"The given symbol '$func' could not be found in the symbol table.")
+
     }
   }
 
@@ -274,21 +208,20 @@ object ManualProfiling {
     // Read symbol and create mapping
     val (stringToSymbols, longToSymbols) = parseSymbolTable(elf)
 
-    val disassemblyRegex = raw"([0-9,a-f]{8}):\s+([0-9,a-f]{8})\s+(.+)".r
+    val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]{8})\s+(.+)".r
 
     // Construct a mapping of a function to its instructions and cycle counts
     // Put it into a block to free memory of local variables
     val groupedInstructions = {
 
       // Read disassembly and create mapping from address to mnemonic and operands
-      val instructions = s"/home/lab/bin/riscv/rv32im/bin/riscv32-unknown-elf-objdump -d $elf".lazyLines
-        .map(disassemblyRegex.findFirstMatchIn).collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }.toMap
+      val instructions = s"riscv32-unknown-elf-objdump -d $elf".lazyLines
+        .map(disassemblyRegex.findFirstMatchIn).collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
+        .map((addr, ins) => (("0" * (8 - addr.length)) + addr, ins)).toMap
 
       // Compute cycle counts of groups
       val cycleCounts = data.foldLeft(Map[String, List[Int]]()) {
-        case (map, (addr, cycles)) => map.updatedWith(
-            addr
-          ) {
+        case (map, (addr, cycles)) => map.updatedWith(addr) {
             case None       => Some(List(cycles))
             case Some(list) => Some(cycles :: list)
           }
@@ -493,7 +426,7 @@ object ManualProfiling {
     */
   def parseSymbolTable(file: String): (Map[String, String], Map[Long, String]) = {
     // Read symbol and create mapping
-    val stringToSymbols = (s"/home/lab/bin/riscv/rv32im/bin/riscv32-unknown-elf-objdump -t $file").!!
+    val stringToSymbols = (s"riscv32-unknown-elf-objdump -t $file").!!
       // Split lines, split columns
       .split("\n").map(_.split(" "))
       // take address and symbol name
@@ -501,6 +434,49 @@ object ManualProfiling {
       .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap
 
     stringToSymbols -> stringToSymbols.map((addr, sym) => addr.toLong(16) -> sym)
+  }
+}
+
+final case class Task(
+  file: String
+) {
+  def execute(
+    doProfile: Boolean,
+    doAnalysis: Boolean,
+    debuggedFunction: Option[String],
+    desiredCalls: Int,
+    bootAt: String,
+    filter: Boolean,
+    visualize: Boolean,
+    exclude: List[String]
+  ): Unit = {
+    val name = file.split("/").last.split(".hex").head
+    val dataFile = s"data/$name"
+    val profError =
+      if (doProfile) {
+        ManualProfiling.profile(file, dataFile, debuggedFunction, desiredCalls, bootAt)
+      } else None
+
+    profError match {
+      case Some(error) =>
+        println(Console.RED + s"$name: $error" + Console.RESET)
+      case None =>
+        println(s"Done profiling $name")
+
+        if (doAnalysis) {
+          ManualProfiling.analyse(
+            dataFile,
+            s"${file.split(".hex").head}.elf",
+            s"results/$name",
+            filter,
+            debuggedFunction,
+            visualize,
+            exclude
+          )
+          println(s"Done analysing $name")
+        }
+    }
+
   }
 }
 
