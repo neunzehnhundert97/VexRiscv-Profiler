@@ -59,7 +59,7 @@ object ManualProfiling {
     if (doProfile) {
       println("Build profiler")
       (s"make ${literalBoolean(hqc)} ${literalBoolean(mceliece)} ${literalBoolean(bike)} profile " +
-        s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!
+        s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!(ProcessLogger(_ => ()))
     }
 
     // HQC
@@ -98,32 +98,37 @@ object ManualProfiling {
   }
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, debuggedFunction: Option[String], calls: Int, bootAt: String): Option[String] = {
+  def profile(
+    hexFile: String,
+    dataFile: String,
+    debuggedFunction: Option[String],
+    calls: Int,
+    bootAt: String
+  ): Either[String, Unit] =
     debuggedFunction match {
       case None =>
         // Call profiler
         try {
           (s"./obj_dir/VVexRiscv $hexFile $bootAt 1" #> File(dataFile).toJava).!
-          None
-        } catch case e: RuntimeException => Some("The profiler exited with a non zero exit value")
+          Right(())
+        } catch case e: RuntimeException => Left("The profiler exited with a non zero exit value")
       case Some(func) =>
         // Get function address from symbol table
         try {
+          val logger = ProcessLogger(_ => (), _ => ())
           val functionAddress =
             (s"riscv32-unknown-elf-objdump -t ${hexFile.replace(".hex", ".elf")}" #|
               // Match with grep the function name as a single word
-              raw"grep -P '\b$func\b'").!!.split(" ").head.strip
+              raw"grep -P '\b$func\b'").!!(logger).split(" ").head.strip
 
           // Call profiler
           try {
             (s"./obj_dir/VVexRiscv $hexFile $bootAt 2 $functionAddress $calls" #> File(s"$dataFile-$func").toJava).!
-            None
-          } catch case e: RuntimeException => Some("The profiler exited with a non zero exit value")
+            Right(())
+          } catch case e: RuntimeException => Left("The profiler exited with a non zero exit value")
 
-        } catch case e: RuntimeException => Some(s"The given symbol '$func' could not be found in the symbol table.")
-
+        } catch case e: RuntimeException => Left(s"The given symbol '$func' could not be found in the symbol table.")
     }
-  }
 
   def analyse(
     log: String,
@@ -133,13 +138,16 @@ object ManualProfiling {
     functionName: Option[String],
     graph: Boolean,
     exclude: List[String]
-  ): Unit =
-    functionName match {
-      case None =>
-        functionAnalysis(log, elf, out, filter, graph, exclude)
-      case Some(func) =>
-        instructionAnalysis(s"$log-$func", elf, s"$out-$func", filter, graph)
-    }
+  ): Either[String, Unit] =
+    try {
+      functionName match {
+        case None =>
+          functionAnalysis(log, elf, out, filter, graph, exclude)
+        case Some(func) =>
+          instructionAnalysis(s"$log-$func", elf, s"$out-$func", filter, graph)
+      }
+      Right(())
+    } catch case e: Exception => Left(s"An exception ocurred during analysis: ${e.getMessage}")
 
   def functionAnalysis(log: String, elf: String, out: String, filter: Boolean, graph: Boolean, exclude: List[String]): Unit = {
     // Read measurements and parse them into case classes
@@ -208,12 +216,11 @@ object ManualProfiling {
     // Read symbol and create mapping
     val (stringToSymbols, longToSymbols) = parseSymbolTable(elf)
 
-    val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]{8})\s+(.+)".r
+    val disassemblyRegex = raw"([0-9,a-f]{8}):\s+([0-9,a-f]{8})\s+(.+)".r
 
     // Construct a mapping of a function to its instructions and cycle counts
     // Put it into a block to free memory of local variables
     val groupedInstructions = {
-
       // Read disassembly and create mapping from address to mnemonic and operands
       val instructions = s"riscv32-unknown-elf-objdump -d $elf".lazyLines
         .map(disassemblyRegex.findFirstMatchIn).collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
@@ -348,7 +355,7 @@ object ManualProfiling {
 
             // Center the content by setting a margin
             div(style := "margin-left: 30vw;")(
-              h2(s"$func (estimated $min calls)"),
+              h2(s"$func (estimated $min calls) ${data.flatMap(_._2).sum} cycles"),
               table(
                 // Iterate over the instructions
                 for ((addr, cycles, ins) <- data)
@@ -437,9 +444,10 @@ object ManualProfiling {
   }
 }
 
-final case class Task(
-  file: String
-) {
+/** Class to handle the profiling tasks at one place */
+final case class Task(file: String) {
+
+  /** Perform the wanted actions. */
   def execute(
     doProfile: Boolean,
     doAnalysis: Boolean,
@@ -452,31 +460,40 @@ final case class Task(
   ): Unit = {
     val name = file.split("/").last.split(".hex").head
     val dataFile = s"data/$name"
-    val profError =
+
+    // Profile and collect its possible error value
+    val profile = () =>
       if (doProfile) {
         ManualProfiling.profile(file, dataFile, debuggedFunction, desiredCalls, bootAt)
-      } else None
+      } else Right(())
 
-    profError match {
-      case Some(error) =>
-        println(Console.RED + s"$name: $error" + Console.RESET)
-      case None =>
-        println(s"Done profiling $name")
+    val analyse = () =>
+      if (doAnalysis)
+        ManualProfiling.analyse(
+          dataFile,
+          s"${file.split(".hex").head}.elf",
+          s"results/$name",
+          filter,
+          debuggedFunction,
+          visualize,
+          exclude
+        )
+      else
+        Right(())
 
-        if (doAnalysis) {
-          ManualProfiling.analyse(
-            dataFile,
-            s"${file.split(".hex").head}.elf",
-            s"results/$name",
-            filter,
-            debuggedFunction,
-            visualize,
-            exclude
-          )
-          println(s"Done analysing $name")
-        }
-    }
+      // Evaluate task
+      val result = for {
+        a <- profile()
+        b <- analyse()
+      } yield ()
 
+      // Report result
+      result match {
+        case Left(error) =>
+          println(Console.RED + name + Console.RESET + s": $error")
+        case Right(_) =>
+          println(Console.GREEN + name + Console.RESET + ": Done profiling")
+      }
   }
 }
 
