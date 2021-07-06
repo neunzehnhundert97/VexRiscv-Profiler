@@ -7,7 +7,6 @@ import java.util.Date
 import java.text.SimpleDateFormat
 
 import scalatags.Text.all._
-import scala.util._
 
 object ManualProfiling {
 
@@ -18,23 +17,66 @@ object ManualProfiling {
 
   val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
+  /** Path to objdump for the analyzed elf. */
+  val objdump = "riscv32-unknown-elf-objdump"
+
   /** Displays the name of a boolean if it is true, else an empty string. */
-  inline def literalBoolean(cond: Boolean): String =
-    if (cond) codeOf(cond) else ""
+  inline def literalBoolean(inline cond: Boolean): String =
+    if (cond) codeOf(cond).split('.').last else ""
 
   /** Reads arguments of the form "name=" and returns them as an option, optionally converted. */
   def extractArgumentOption[A](args: Seq[String], name: String, conversion: String => A = identity): Option[A] =
     args.find(_.startsWith(s"$name=")).map(_.substring(name.length + 1)).map(conversion)
 
   def apply(args: Seq[String]): Unit = {
+    val config = readCLIParameters(args)
+    import config.*
+
+    // Build profiler
+    buildProfiler(config) match {
+      case Error(msg) =>
+        reportError(msg)
+      case Success(_) =>
+        // HQC
+        val hqcTasks =
+          if (hqc)
+            for (version <- hqcVersions.take(take))
+              yield Task(s"../hqc/hqc-$version/bin/hqc-$version.hex", config)
+          else Nil
+
+        // McEliece
+        val mcElieceTasks =
+          if (mceliece)
+            for (vers <- mcelieceVersions.take(take); variant <- Seq("", "f").take(take))
+              yield Task(s"../McEliece/mceliece$vers$variant/bin/mceliece$vers$variant.hex", config)
+          else Nil
+
+        // BIKE
+        val bikeTasks =
+          if (bike)
+            for (version <- bikeVersions.take(take))
+              yield Task(s"../BIKE-Additional/bin/bike-$version.hex", config)
+          else Nil
+
+        // Create tasks
+        val manualTasks = for (file <- manualInputs)
+          yield Task(file, config)
+
+        // Excute in parallel
+        val tasks = hqcTasks ::: mcElieceTasks ::: bikeTasks ::: manualTasks
+        reportStatus(s"Start execution of ${tasks.length} tasks")
+        tasks.par.foreach(_.execute())
+    }
+  }
+
+  def readCLIParameters(args: Seq[String]): Config = {
     // Boolean arguments
     val hqc = args.contains("hqc")
     val mceliece = args.contains("mceliece")
     val bike = args.contains("bike")
     val doAnalysis = args.contains("analyse")
     val doProfile = args.contains("profile")
-    val filter = args.contains("filter")
-    val graph = args.contains("graph")
+    val visualize = args.contains("graph") || args.contains("visualize")
 
     // Reduce the number of version to profile, used for testing
     val take = extractArgumentOption(args, "take", _.toInt).getOrElse(10)
@@ -44,10 +86,10 @@ object ManualProfiling {
     val desiredCalls = extractArgumentOption(args, "calls", _.toInt).getOrElse(1)
 
     // Direct input of files to debug
-    val manualInputs = extractArgumentOption(args, "input", _.split(','))
+    val manualInputs = extractArgumentOption(args, "input", _.split(',').toList).getOrElse(Nil)
 
     // Flags for the profiler's makefile
-    val profilerMakeFlags = extractArgumentOption(args, "profilerFlags", _.split(',')).getOrElse(Array[String]())
+    val profilerMakeFlags = extractArgumentOption(args, "profilerFlags", _.split(',').toList).getOrElse(Nil)
 
     // Address to start execution at
     val bootAt = extractArgumentOption(args, "bootAt").getOrElse("80000000")
@@ -55,46 +97,35 @@ object ManualProfiling {
     // A list of function names to exclude
     val exclude = extractArgumentOption(args, "exclude", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
 
-    // Build
+    // Put all in one object to ease passing around
+    Config(
+      doAnalysis,
+      doProfile,
+      manualInputs,
+      visualize,
+      take,
+      debuggedFunction,
+      desiredCalls,
+      profilerMakeFlags,
+      bootAt,
+      exclude,
+      hqc,
+      bike,
+      mceliece
+    )
+  }
+
+  /** Calls the profiler's makefile with the given arguments if profiling is needed. */
+  def buildProfiler(config: Config): ErrorOrSuccess = {
+    import config.*
     if (doProfile) {
-      println("Build profiler")
-      (s"make ${literalBoolean(hqc)} ${literalBoolean(mceliece)} ${literalBoolean(bike)} profile " +
-        s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!(ProcessLogger(_ => ()))
-    }
-
-    // HQC
-    val hqcTasks =
-      if (hqc)
-        for (version <- hqcVersions.take(take))
-          yield Task(s"../hqc/hqc-$version/bin/hqc-$version.hex")
-      else Nil
-
-    // McEliece
-    val mcElieceTasks =
-      if (mceliece)
-        for (vers <- mcelieceVersions.take(take); variant <- Seq("", "f").take(take))
-          yield Task(s"../McEliece/mceliece$vers$variant/bin/mceliece$vers$variant.hex")
-      else Nil
-
-    // BIKE
-    val bikeTasks =
-      if (bike)
-        for (version <- bikeVersions.take(take))
-          yield Task(s"../BIKE-Additional/bin/bike-$version.hex")
-      else Nil
-
-    // Manual tasks
-    val manualTasks = manualInputs match {
-      case None => Nil
-      case Some(array) =>
-        for (file <- array.toList)
-          yield Task(file)
-    }
-
-    // Excute in parallel
-    val tasks = hqcTasks ::: mcElieceTasks ::: bikeTasks ::: manualTasks
-    println(s"Start execution of ${tasks.length} tasks")
-    tasks.par.foreach(_.execute(doProfile, doAnalysis, debuggedFunction, desiredCalls, bootAt, filter, graph, exclude))
+      reportStatus("Building verilator simulation")
+      try {
+        (s"make ${literalBoolean(hqc)} ${literalBoolean(mceliece)} ${literalBoolean(bike)} all " +
+          s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!(ProcessLogger(_ => ()))
+        Right(())
+      } catch case e: RuntimeException => Left(s"The profiler could not be build: ${e.getLocalizedMessage}")
+    } else Right(())
   }
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
@@ -104,7 +135,7 @@ object ManualProfiling {
     debuggedFunction: Option[String],
     calls: Int,
     bootAt: String
-  ): Either[String, Unit] =
+  ): ErrorOrSuccess =
     debuggedFunction match {
       case None =>
         // Call profiler
@@ -117,7 +148,7 @@ object ManualProfiling {
         try {
           val logger = ProcessLogger(_ => (), _ => ())
           val functionAddress =
-            (s"riscv32-unknown-elf-objdump -t ${hexFile.replace(".hex", ".elf")}" #|
+            (s"$objdump -t ${hexFile.replace(".hex", ".elf")}" #|
               // Match with grep the function name as a single word
               raw"grep -P '\b$func\b'").!!(logger).split(" ").head.strip
 
@@ -130,26 +161,20 @@ object ManualProfiling {
         } catch case e: RuntimeException => Left(s"The given symbol '$func' could not be found in the symbol table.")
     }
 
-  def analyse(
-    log: String,
-    elf: String,
-    out: String,
-    filter: Boolean,
-    functionName: Option[String],
-    graph: Boolean,
-    exclude: List[String]
-  ): Either[String, Unit] =
+  def analyse(log: String, elf: String, out: String, config: Config): ErrorOrSuccess =
     try {
-      functionName match {
+      config.debuggedFunction match {
         case None =>
-          functionAnalysis(log, elf, out, filter, graph, exclude)
+          highLevel(log, elf, out, config)
         case Some(func) =>
-          instructionAnalysis(s"$log-$func", elf, s"$out-$func", filter, graph)
+          lowLevel(s"$log-$func", elf, s"$out-$func", config)
       }
       Right(())
     } catch case e: Exception => Left(s"An exception ocurred during analysis: ${e.getMessage}")
 
-  def functionAnalysis(log: String, elf: String, out: String, filter: Boolean, graph: Boolean, exclude: List[String]): Unit = {
+  def highLevel(log: String, elf: String, out: String, config: Config): Unit = {
+    import config.*
+
     // Read measurements and parse them into case classes
     val profilingData = File(log)
     val data = profilingData.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m }
@@ -189,10 +214,7 @@ object ManualProfiling {
     // Create output string
     var output =
       f"| ${"Function name"}%-43s | ${"Total abs"}%13s | ${"Total rel"}%13s | ${"Own abs"}%13s | ${"Own abs"}%13s | ${"Total/Own rel"}%13s |%n" +
-        (for (
-          (func, total, totalRel, own, ownRel) <- relData.toList.sortBy(-_._4)
-          if (!filter || totalRel > 5 || ownRel > 5)
-        )
+        (for ((func, total, totalRel, own, ownRel) <- relData.toList.sortBy(-_._4))
           yield f"| ${func}%-43s | ${total}%13d | ${totalRel * 100}%12.2f%% | ${own}%13d | ${ownRel * 100}%12.2f%% | ${own * 100.0 / total}%12.2f%% |")
           .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
         s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
@@ -203,11 +225,13 @@ object ManualProfiling {
     File(out).write(output)
 
     // If requested, do the graph
-    if (graph)
+    if (visualize)
       generateGraph(rootNode, relData, callMap, out)
   }
 
-  def instructionAnalysis(log: String, elf: String, out: String, filter: Boolean, graph: Boolean): Unit = {
+  def lowLevel(log: String, elf: String, out: String, config: Config): Unit = {
+    import config.*
+
     // Read measurements and parse them
     val profilingData = File(log)
     val data = profilingData.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
@@ -262,7 +286,7 @@ object ManualProfiling {
     // Write text output
     File(out).write(output)
 
-    if (graph)
+    if (visualize)
       generateHotnessHTML(groupedInstructions, out)
   }
 
@@ -441,162 +465,5 @@ object ManualProfiling {
       .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap
 
     stringToSymbols -> stringToSymbols.map((addr, sym) => addr.toLong(16) -> sym)
-  }
-}
-
-/** Class to handle the profiling tasks at one place */
-final case class Task(file: String) {
-
-  /** Perform the wanted actions. */
-  def execute(
-    doProfile: Boolean,
-    doAnalysis: Boolean,
-    debuggedFunction: Option[String],
-    desiredCalls: Int,
-    bootAt: String,
-    filter: Boolean,
-    visualize: Boolean,
-    exclude: List[String]
-  ): Unit = {
-    val name = file.split("/").last.split(".hex").head
-    val dataFile = s"data/$name"
-
-    // Profile and collect its possible error value
-    val profile = () =>
-      if (doProfile) {
-        ManualProfiling.profile(file, dataFile, debuggedFunction, desiredCalls, bootAt)
-      } else Right(())
-
-    val analyse = () =>
-      if (doAnalysis)
-        ManualProfiling.analyse(
-          dataFile,
-          s"${file.split(".hex").head}.elf",
-          s"results/$name",
-          filter,
-          debuggedFunction,
-          visualize,
-          exclude
-        )
-      else
-        Right(())
-
-      // Evaluate task
-      val result = for {
-        a <- profile()
-        b <- analyse()
-      } yield ()
-
-      // Report result
-      result match {
-        case Left(error) =>
-          println(Console.RED + name + Console.RESET + s": $error")
-        case Right(_) =>
-          println(Console.GREEN + name + Console.RESET + ": Done profiling")
-      }
-  }
-}
-
-final case class FunctionMeasurement(start: Boolean, address: String, counter: Long)
-
-object FunctionMeasurement {
-  // Regex for the measurements
-  private val lineRegex = raw"(\s*)(?<type>E|L):(?<address>\S+):(?<counter>\d+)".r
-
-  /** Parses the given line and return the option of a measurement. */
-  def createFromTrace(input: String): Option[FunctionMeasurement] =
-    lineRegex.findFirstMatchIn(input) match {
-      case None => None
-      case Some(m) =>
-        Some(FunctionMeasurement(
-          start = m.group("type") == "E",
-          address = m.group("address"),
-          counter = m.group("counter").toLong
-        ))
-    }
-}
-
-/** part of a call graph including depth and cycles. */
-final case class CallNode(function: String, depth: Int, enterCount: Long, leaveCount: Long, successor: List[CallNode]) {
-  def totalTime: Long =
-    leaveCount - enterCount
-
-  lazy val ownTime: Long =
-    totalTime - succesorTime
-
-  lazy val succesorTime: Long =
-    successor.map(_.totalTime).sum
-
-  /** Compresses the tree into a list of functions and cycles. */
-  def collectSum(mapping: Map[String, (Long, Long)] = Map(), ancestor: String = ""): Map[String, (Long, Long)] = {
-
-    // Update map with this nodes data
-    val updatedMap = mapping.updatedWith(function) {
-      case Some(c1 -> c2) if function != ancestor => Some(totalTime + c1, ownTime + c2)
-      // Handle direct recursions
-      case Some(c1 -> c2) if function == ancestor => Some(c1, c2 + ownTime)
-      case _                                      => Some(totalTime, ownTime)
-    }
-    successor.foldLeft(updatedMap)((m, node) => node.collectSum(m, function))
-  }
-
-  /** Compresses the tree into a call map. The numbers in the tuple are times called by parent and times called over all. Return
-    * value Map[Caller, Map[Calle, (Times called in all executions, Times called in one execution)]]
-    */
-  def callMap(map: Map[String, Map[String, (Long, Long)]] = Map(), called: Long = 1): Map[String, Map[String, (Long, Long)]] = {
-    val calls = successor.map(_.function).groupBy(identity).map((func, funcs) =>
-      func -> (funcs.length.toLong, funcs.length.toLong)
-    )
-
-    // Update map with this nodes data
-    val updatedMap = map.updatedWith(function) {
-      case None => Some(calls)
-      case Some(map) =>
-        Some((map.toSeq ++ calls.toSeq)
-          .groupMap(_._1)(_._2)
-          .map((func, data) => func -> (data.map(_._1).sum, data.map(_._2).head)))
-    }
-    successor.foldLeft(updatedMap)((m, node) => node.callMap(m, updatedMap(function)(node.function)._2))
-  }
-
-  /** Remove nodes which match the given strings. */
-  def cutOut(filter: List[String]): CallNode = {
-    // Partition nodes on given blacklist
-    val (keptSuccessors, removedSuccesors) = successor.partition(c => !filter.exists(f => c.function.toLowerCase.contains(f)))
-    // Cut all remaining successors
-    val cutSuccessors = keptSuccessors.map(_.cutOut(filter))
-    // Build new node
-    CallNode(
-      function,
-      depth,
-      enterCount,
-      // Recalculate the leave count (this breaks its logic, but behaves as expected on the sums)
-      enterCount + cutSuccessors.map(_.totalTime).sum + ownTime,
-      cutSuccessors
-    )
-  }
-
-  override def toString: String =
-    s"[$function with $totalTime]"
-
-  /** Show complete tree. */
-  def showAll: String =
-    s"${" " * depth}$this${if (successor.nonEmpty) successor.map(_.showAll).mkString("\n", "\n", "") else ""}"
-}
-
-extension (s: String) {
-  def toLong(radix: Int): Long =
-    java.lang.Long.parseLong(s, radix)
-}
-
-extension [N: Numeric](list: List[N]) {
-  def median: Double = list.length match {
-    case 0 => 0
-    case 1 => summon[Numeric[N]].toDouble(list.head)
-    case l if l % 2 == 0 =>
-      val ls = list.sorted
-      val num = summon[Numeric[N]]
-      num.toDouble((num.plus(ls(l / 2), ls(l / 2 - 1)))) / 2.0
-    case l if l % 2 != 0 => summon[Numeric[N]].toDouble(list(l / 2 + 1))
   }
 }
