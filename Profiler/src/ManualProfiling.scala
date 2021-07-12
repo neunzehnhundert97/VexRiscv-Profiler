@@ -240,7 +240,7 @@ object ManualProfiling {
     // Read symbol and create mapping
     val (stringToSymbols, longToSymbols) = parseSymbolTable(elf)
 
-    val disassemblyRegex = raw"([0-9,a-f]{8}):\s+([0-9,a-f]{8})\s+(.+)".r
+    val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]{8})\s+(.+)".r
 
     // Construct a mapping of a function to its instructions and cycle counts
     // Put it into a block to free memory of local variables
