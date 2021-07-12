@@ -352,16 +352,18 @@ object ManualProfiling {
   ): Unit = {
     // Generate the HTML using scalatags
     val output = doctype("HTML")(html(
-      head(tag("style")(
-        raw("td > p {margin-left: 20px;margin-right:20px;margin-top: 0;margin-bottom: 0} " +
-          ".blockBegin p {margin-top: 10px;} " +
-          ".blockEnd p {margin-bottom: 10px;} " +
-          ".blockBegin td {vertical-align: bottom;}" +
-          ".mnemonic {font-weight: bolder;} " +
-          "body {font-family: Fira Code, monospace} " +
-          "td {vertical-align: top;} "),
+      head(
+        tag("style")(
+          raw("td > p {margin-left: 20px;margin-right:20px;margin-top: 0;margin-bottom: 0} " +
+            ".blockBegin p {margin-top: 10px;} " +
+            ".blockEnd p {margin-bottom: 10px;} " +
+            ".blockBegin td {vertical-align: bottom;}" +
+            ".mnemonic {font-weight: bolder;} " +
+            "body {font-family: Fira Code, monospace} " +
+            "td {vertical-align: top;} ")
+        ),
         tag("title")(out.split("/").last)
-      )),
+      ),
       body(
         for ((func, data) <- groupedInstructions.toList if !Seq("__cyg_profile_func_enter").contains(func))
           yield {
