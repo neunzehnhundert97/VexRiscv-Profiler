@@ -6,7 +6,7 @@ object Profiler extends ScalaModule {
   def scalaVersion = "3.0.0"
 
   def scalacOptions =
-    Seq("-explain", "-explain-types", "-source:3.0-migration", "-no-indent", "-old-syntax")
+    Seq("-explain", "-explain-types", "-no-indent", "-old-syntax")
 
   // Compiler plugins
   //def scalacPluginIvyDeps = Agg()

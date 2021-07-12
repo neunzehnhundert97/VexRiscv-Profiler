@@ -14,3 +14,7 @@ extension [N: Numeric](list: List[N]) {
     case l if l % 2 != 0 => summon[Numeric[N]].toDouble(list(l / 2 + 1))
   }
 }
+
+extension (i: Int) {
+  def downto(start: Int): Range.Inclusive = Range.inclusive(i, start, -1)
+}

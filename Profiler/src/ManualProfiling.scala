@@ -246,9 +246,20 @@ object ManualProfiling {
     // Put it into a block to free memory of local variables
     val groupedInstructions = {
       // Read disassembly and create mapping from address to mnemonic and operands
-      val instructions = s"riscv32-unknown-elf-objdump -d $elf".lazyLines
+      val instructionsAll = s"riscv32-unknown-elf-objdump -d $elf".lazyLines
         .map(disassemblyRegex.findFirstMatchIn).collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
         .map((addr, ins) => (("0" * (8 - addr.length)) + addr, ins)).toMap
+
+      // Read custom encodings from file
+      val additionalEncoding = parseAdditionalInstructions("instructions_c.scv")
+
+      val instructions = instructionsAll.map((addr, ins) =>
+        // If the disassembly failed to decode the instruction, try to do it with the additonal encodings
+        if (ins.startsWith("0x"))
+          addr -> additionalEncoding.map(e => e.decode(ins)).collectFirst { case Some(i) => i }.getOrElse(ins)
+        else
+          addr -> ins
+      )
 
       // Compute cycle counts of groups
       val cycleCounts = data.foldLeft(Map[String, List[Int]]()) {
@@ -467,5 +478,20 @@ object ManualProfiling {
       .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap
 
     stringToSymbols -> stringToSymbols.map((addr, sym) => addr.toLong(16) -> sym)
+  }
+
+  /** Read the given csv of definitions. */
+  def parseAdditionalInstructions(file: String): List[InstructionEncoding] = {
+    // Read csv
+    val file = File("instructions_s.csv")
+    if (file.exists) {
+      // Drop heading line (column names)
+      val rawData = file.lineIterator.drop(1)
+      rawData
+        .map(_.split(";"))
+        .map(arr => InstructionEncoding(arr.head, arr(1), EncodingType.valueOf(arr.last)))
+        .toList
+    } else
+      Nil
   }
 }
