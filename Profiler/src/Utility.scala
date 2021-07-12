@@ -23,3 +23,5 @@ extension [N: Numeric](list: List[N]) {
     case l if l % 2 != 0 => summon[Numeric[N]].toDouble(list(l / 2 + 1))
   }
 }
+
+type ->[+A, +B] = Tuple2[A, B]

@@ -262,7 +262,7 @@ object ManualProfiling {
       cycleCounts.map((addr, cycles) => (addr, cycles, instructions(addr)))
         .groupBy((addr, cycles, ins) =>
           longToSymbols.map((num, sym) => (addr.toLong(16) - num, sym)).filter((num, _) => num > 0).minBy(_._1)._2
-        ).map((func, data) => (func, data.toList.sortBy(_._1))).toMap
+        ).map((func, data) => (func, data.toList.sortBy(_._1))).toList.sortBy(_._2.head._1)
     }
 
     // Create text output
@@ -347,7 +347,7 @@ object ManualProfiling {
 
   /** Renders the instruction analysis into a HTML file. */
   def generateHotnessHTML(
-    groupedInstructions: Map[String, List[(String, List[Int], String)]],
+    groupedInstructions: List[String -> List[(String, List[Int], String)]],
     out: String
   ): Unit = {
     // Generate the HTML using scalatags
