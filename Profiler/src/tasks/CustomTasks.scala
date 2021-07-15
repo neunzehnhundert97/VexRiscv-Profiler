@@ -18,5 +18,10 @@ def customTasks: List[PredefinedTask] = List(
     "bike",
     version => s"../BIKE-Additional/BIKE-$version/bin/bike-$version.hex",
     List("1", "3")
+  ),
+  PredefinedTask(
+    "test",
+    "/home/lab/F/EigeneDateien/Studium/5_SS_21/MA/Code/TrinityCore/RegressionTests/ExtendedRegTest/build/ExtendedRegTest.hex",
+    true
   )
 )

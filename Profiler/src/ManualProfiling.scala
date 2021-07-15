@@ -41,19 +41,30 @@ object ManualProfiling {
         val manualTasks = for (file <- manualInputs)
           yield Task(file)
 
-        val predefinedTasks = config.predefinedTasks.flatMap(pre =>
-          (config.take, config.drop) match {
-            case None -> None             => pre.generateTasks
-            case Some(take) -> None       => pre.generateTasks.take(take)
-            case None -> Some(drop)       => pre.generateTasks.drop(drop)
-            case Some(take) -> Some(drop) => pre.generateTasks.drop(drop).take(take)
+        val predefinedTasks = config.predefinedTasks.flatMap { pre =>
+          // Handle failed tasks descriptions
+          val tasks = pre.generateTasks.flatMap {
+            case Right(task) => List(task)
+            case Left(msg) =>
+              reportError(msg, pre.name)
+              Nil
           }
-        )
+          // Handle takes and drops
+          (config.take, config.drop).match {
+            case None -> None             => tasks
+            case Some(take) -> None       => tasks.take(take)
+            case None -> Some(drop)       => tasks.drop(drop)
+            case Some(take) -> Some(drop) => tasks.drop(drop).take(take)
+          }
+        }
 
         // Excute in parallel
         val tasks = manualTasks ::: predefinedTasks
-        reportStatus(s"Start execution of ${tasks.length} tasks")
-        tasks.par.foreach(_.execute(config))
+        if (tasks.nonEmpty) {
+          reportStatus(s"Start execution of ${tasks.length} tasks")
+          tasks.par.foreach(_.execute(config))
+        } else
+          reportStatus("No tasks to execute")
     }
   }
 
@@ -108,11 +119,17 @@ object ManualProfiling {
     import config.*
     if (doProfile) {
       reportStatus("Building verilator simulation")
-      try {
-        (s"make ${config.predefinedTasks.map(_.name).mkString(" ")} all " +
-          s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!(ProcessLogger(_ => ()))
+
+      // Invoke makefile to build profiler and request additional targets
+      val r = os.proc(
+        "make",
+        config.predefinedTasks.map(_.name).mkString(" "),
+        "all",
+        s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}"
+      ).call(check = false, mergeErrIntoOut = true)
+      if (r.exitCode == 0)
         Right(())
-      } catch case e: RuntimeException => Left(s"The profiler could not be build: ${e.getLocalizedMessage}")
+      else Left(s"The profiler could not be build: ${r.out.text}")
     } else Right(())
   }
 

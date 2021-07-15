@@ -8,17 +8,11 @@ object Profiler extends ScalaModule {
   def scalacOptions =
     Seq("-explain", "-explain-types", "-no-indent", "-old-syntax")
 
-  // Compiler plugins
-  //def scalacPluginIvyDeps = Agg()
-
   // Libraries
   def ivyDeps = Agg(
     ivy"org.scala-lang.modules::scala-parallel-collections:1.0.3",
     ivy"com.github.pathikrit::better-files::3.9.1".withDottyCompat(scalaVersion()),
-    ivy"com.lihaoyi::scalatags:0.9.4".withDottyCompat(scalaVersion())
+    ivy"com.lihaoyi::scalatags:0.9.4".withDottyCompat(scalaVersion()),
+    ivy"com.lihaoyi::os-lib:0.7.8"
   )
-
-  // Arguments for java
-  //def forkArgs = Seq()
-
 }
