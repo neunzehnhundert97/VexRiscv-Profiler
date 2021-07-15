@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 extension (s: String) {
   def toLong(radix: Int): Long =
     java.lang.Long.parseLong(s, radix)

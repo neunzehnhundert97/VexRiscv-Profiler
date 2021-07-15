@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 final case class FunctionMeasurement(start: Boolean, address: String, counter: Long)
 
 object FunctionMeasurement {

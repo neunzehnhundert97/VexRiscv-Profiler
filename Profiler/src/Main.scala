@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 @main
 def main(args: String*): Unit =
   if (args.isEmpty || args.contains("help") || args.contains("-h") || args.contains("--h"))

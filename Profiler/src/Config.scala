@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 final case class Config(
   doAnalysis: Boolean,
   doProfile: Boolean,

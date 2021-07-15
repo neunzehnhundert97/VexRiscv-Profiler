@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 def reportStatus(msg: String, reporter: String = "Profiler"): Unit =
   println(Console.BLUE + reporter + Console.RESET + ": " + msg)
 

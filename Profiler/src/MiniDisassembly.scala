@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 enum EncodingType() {
   case I extends EncodingType()
   case R extends EncodingType()

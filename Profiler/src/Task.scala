@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 /** Class to handle the profiling tasks at one place */
 final case class Task(file: String, config: Config) {
   import config.*

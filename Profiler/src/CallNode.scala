@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 /** part of a call graph including depth and cycles. */
 final case class CallNode(function: String, depth: Int, enterCount: Long, leaveCount: Long, successor: List[CallNode]) {
   def totalTime: Long =

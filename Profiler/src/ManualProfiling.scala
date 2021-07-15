@@ -1,3 +1,6 @@
+package masterthesis
+package profiler
+
 import scala.sys.process._
 
 import scala.collection.parallel.CollectionConverters._
