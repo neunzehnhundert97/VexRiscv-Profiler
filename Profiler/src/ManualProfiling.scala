@@ -2,22 +2,19 @@ package masterthesis
 package profiler
 
 import scala.sys.process._
-
 import scala.collection.parallel.CollectionConverters._
-import better.files._
 import scala.compiletime.codeOf
+
 import java.util.Date
 import java.text.SimpleDateFormat
 
+import better.files._
+
 import scalatags.Text.all._
 
+import tasks.PredefinedTask
+
 object ManualProfiling {
-
-  // Version of schemes
-  val hqcVersions = List("128", "192", "256")
-  val mcelieceVersions = List("348864", "460896")
-  val bikeVersions = List("1", "3")
-
   val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
   /** Path to objdump for the analyzed elf. */
@@ -40,49 +37,35 @@ object ManualProfiling {
       case Error(msg) =>
         reportError(msg)
       case Success(_) =>
-        // HQC
-        val hqcTasks =
-          if (hqc)
-            for (version <- hqcVersions.take(take))
-              yield Task(s"../hqc/hqc-$version/bin/hqc-$version.hex", config)
-          else Nil
-
-        // McEliece
-        val mcElieceTasks =
-          if (mceliece)
-            for (vers <- mcelieceVersions.take(take); variant <- Seq("", "f").take(take))
-              yield Task(s"../McEliece/mceliece$vers$variant/bin/mceliece$vers$variant.hex", config)
-          else Nil
-
-        // BIKE
-        val bikeTasks =
-          if (bike)
-            for (version <- bikeVersions.take(take))
-              yield Task(s"../BIKE-Additional/BIKE-$version/bin/bike-$version.hex", config)
-          else Nil
-
         // Create tasks
         val manualTasks = for (file <- manualInputs)
-          yield Task(file, config)
+          yield Task(file)
+
+        val predefinedTasks = config.predefinedTasks.flatMap(pre =>
+          (config.take, config.drop) match {
+            case None -> None             => pre.generateTasks
+            case Some(take) -> None       => pre.generateTasks.take(take)
+            case None -> Some(drop)       => pre.generateTasks.drop(drop)
+            case Some(take) -> Some(drop) => pre.generateTasks.drop(drop).take(take)
+          }
+        )
 
         // Excute in parallel
-        val tasks = hqcTasks ::: mcElieceTasks ::: bikeTasks ::: manualTasks
+        val tasks = manualTasks ::: predefinedTasks
         reportStatus(s"Start execution of ${tasks.length} tasks")
-        tasks.par.foreach(_.execute())
+        tasks.par.foreach(_.execute(config))
     }
   }
 
   def readCLIParameters(args: Seq[String]): Config = {
     // Boolean arguments
-    val hqc = args.contains("hqc")
-    val mceliece = args.contains("mceliece")
-    val bike = args.contains("bike")
     val doAnalysis = args.contains("analyse")
     val doProfile = args.contains("profile")
     val visualize = args.contains("graph") || args.contains("visualize")
 
-    // Reduce the number of version to profile, used for testing
-    val take = extractArgumentOption(args, "take", _.toInt).getOrElse(10)
+    // Reduce the number of versions in predefined tasks to profile
+    val take = extractArgumentOption(args, "take", _.toInt)
+    val drop = extractArgumentOption(args, "drop", _.toInt)
 
     // Arguments for the instruction analysis
     val debuggedFunction = extractArgumentOption(args, "func")
@@ -100,6 +83,9 @@ object ManualProfiling {
     // A list of function names to exclude
     val exclude = extractArgumentOption(args, "exclude", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
 
+    // Find calls to predefined tasks
+    val customTasks = PredefinedTask.getTasksByNames(args.toList)
+
     // Put all in one object to ease passing around
     Config(
       doAnalysis,
@@ -107,14 +93,13 @@ object ManualProfiling {
       manualInputs,
       visualize,
       take,
+      drop,
       debuggedFunction,
       desiredCalls,
       profilerMakeFlags,
       bootAt,
       exclude,
-      hqc,
-      bike,
-      mceliece
+      customTasks
     )
   }
 
@@ -124,7 +109,7 @@ object ManualProfiling {
     if (doProfile) {
       reportStatus("Building verilator simulation")
       try {
-        (s"make ${literalBoolean(hqc)} ${literalBoolean(mceliece)} ${literalBoolean(bike)} all " +
+        (s"make ${config.predefinedTasks.map(_.name).mkString(" ")} all " +
           s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}").!!(ProcessLogger(_ => ()))
         Right(())
       } catch case e: RuntimeException => Left(s"The profiler could not be build: ${e.getLocalizedMessage}")

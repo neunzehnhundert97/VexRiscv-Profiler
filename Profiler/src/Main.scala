@@ -23,4 +23,6 @@ def printHelp(): Unit =
              |  profilerFlags=[flags] : Flags that will be given to the profilers makefile
              |  bootAt=[address]      : Address to start execution at (default 80000000)
              |  exclude=[name,name...]: Functions to be excluded from the call graph
+             |  take=[n]              : Takes only n items from each predefined task's list, take happens after drop
+             |  drop=[n]              : Drops n items from each predefined task's list, drop happens before take
   """.stripMargin)
