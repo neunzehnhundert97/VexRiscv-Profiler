@@ -55,7 +55,7 @@ object ManualProfiling {
         val bikeTasks =
           if (bike)
             for (version <- bikeVersions.take(take))
-              yield Task(s"../BIKE-Additional/bin/bike-$version.hex", config)
+              yield Task(s"../BIKE-Additional/BIKE-$version/bin/bike-$version.hex", config)
           else Nil
 
         // Create tasks
