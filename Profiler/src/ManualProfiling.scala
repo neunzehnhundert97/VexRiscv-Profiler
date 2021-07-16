@@ -1,7 +1,6 @@
 package masterthesis
 package profiler
 
-import scala.sys.process._
 import scala.collection.parallel.CollectionConverters._
 import scala.compiletime.codeOf
 
@@ -29,7 +28,7 @@ object ManualProfiling {
       case Success(_) =>
         // Create tasks
         val manualTasks = for (file <- manualInputs)
-          yield Task(file)
+          yield Task(file, file)
 
         val predefinedTasks = config.predefinedTasks.flatMap { pre =>
           // Handle failed tasks descriptions
@@ -83,25 +82,24 @@ object ManualProfiling {
       case None =>
         // Call profiler
         try {
-          (s"./obj_dir/VVexRiscv $hexFile ${config.bootAt} 1" #> File(dataFile).toJava).!
+          os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 1).call(stdout = os.Path(dataFile))
           Success
-        } catch case e: RuntimeException => Error("The profiler exited with a non zero exit value")
+        } catch case e: os.SubprocessException => Error("The profiler exited with a non zero exit value")
       case Some(func) =>
         // Get function address from symbol table
         try {
-          val logger = ProcessLogger(_ => (), _ => ())
-          val functionAddress =
-            (s"$objdump -t ${hexFile.replace(".hex", ".elf")}" #|
-              // Match with grep the function name as a single word
-              raw"grep -P '\b$func\b'").!!(logger).split(" ").head.strip
+          val symbolTable = os.proc(objdump, "-t", s"${hexFile.replace(".hex", ".elf")}").spawn()
+          // Match with grep the function name as a single word
+          val grep = os.proc("grep", "-P", raw"'\b$func\b'").call(stdin = symbolTable.stdout)
+          val functionAddress = grep.out.text.split(" ").head.strip
 
           // Call profiler
           try {
-            (s"./obj_dir/VVexRiscv $hexFile ${config.bootAt} 2 $functionAddress ${config.desiredCalls}" #>
-              File(s"$dataFile").toJava).!
+            os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 2, functionAddress, config.desiredCalls)
+              .call(stdout = os.Path(dataFile))
             Success
-          } catch case e: RuntimeException => Error("The profiler exited with a non zero exit value")
+          } catch case e: os.SubprocessException => Error("The profiler exited with a non zero exit value")
 
-        } catch case e: RuntimeException => Error(s"The given symbol '$func' could not be found in the symbol table.")
+        } catch case e: os.SubprocessException => Error(s"The given symbol '$func' could not be found in the symbol table.")
     }
 }

@@ -2,24 +2,24 @@ package masterthesis
 package profiler
 
 /** Class to handle the profiling tasks at one place */
-final case class Task(file: String) {
+final case class Task(name: String, file: String) {
 
   /** Perform the wanted actions. */
   def execute(implicit config: Config): Unit = {
     import config.*
 
-    val name = file.split("/").last.split(".hex").head
-    val dataFile = s"data/$name"
+    val fileName = file.split("/").last.split(".hex").head
+    val dataFile = s"data/$fileName"
 
     // Evaluate task
     val result = profile(dataFile, config)
       .flatMap(_ => Right(reportSuccess("Done profiling", name)))
-      .flatMap(_ => analyze(dataFile, name, config))
+      .flatMap(_ => analyze(dataFile, fileName, config))
 
     // Report result
     result match {
       case Error(msg) =>
-        reportError(msg, file)
+        reportError(msg, name)
       case Success(_) =>
         reportSuccess("Done analyzing", name)
     }

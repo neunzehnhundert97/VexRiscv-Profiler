@@ -1,8 +1,6 @@
 package masterthesis
 package profiler
 
-import scala.sys.process._
-
 import java.util.Date
 import java.text.SimpleDateFormat
 
@@ -71,7 +69,7 @@ object Analysis {
           .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
         s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
         f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
-        s"Created at ${dateFormat.format(new Date())} under revision ${"git log -n 1 --pretty=format:%H -- Profiler/src/ManualProfiling.scala".!!}" +
+        s"Created at ${dateFormat.format(new Date())} under revision ${currentRevision()}" +
         s"Profiling data was measured at ${dateFormat.format(new Date(profilingData.lastModifiedTime.toEpochMilli))}\n"
     // And write it to file
     File(out).write(output)
@@ -98,8 +96,9 @@ object Analysis {
     // Put it into a block to free memory of local variables
     val groupedInstructions = {
       // Read disassembly and create mapping from address to mnemonic and operands
-      val instructionsAll = s"riscv32-unknown-elf-objdump -d $elf".lazyLines
-        .map(disassemblyRegex.findFirstMatchIn).collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
+      val proc = os.proc("riscv32-unknown-elf-objdump", "-d", elf).spawn()
+      val instructionsAll = proc.stdout.lines.map(disassemblyRegex.findFirstMatchIn)
+        .collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
         .map((addr, ins) => (("0" * (8 - addr.length)) + addr, ins)).toMap
 
       // Read custom encodings from file
@@ -194,7 +193,7 @@ object Analysis {
     // Write to file
     File(out + ".png").write(s"""digraph {bgcolor="transparent" \n $nodes $edges}""")
     // Convert to graph and overwrite dot file
-    s"dot -Tpng ${out + ".png"} -o ${out + ".png"}".!
+    os.proc("dot", "-Tpng", out + ".png", "-o", out + ".png").call()
   }
 
   /** Return color string for a gradient. */
@@ -322,7 +321,7 @@ object Analysis {
     */
   def parseSymbolTable(file: String): (Map[String, String], Map[Long, String]) = {
     // Read symbol and create mapping
-    val stringToSymbols = (s"riscv32-unknown-elf-objdump -t $file").!!
+    val stringToSymbols = os.proc(ManualProfiling.objdump, "-t", file).call().out.text
       // Split lines, split columns
       .split("\n").map(_.split(" "))
       // take address and symbol name
@@ -346,4 +345,9 @@ object Analysis {
     } else
       Nil
   }
+
+  /** Uses git to fetch the revision of the profiler. */
+  def currentRevision(): String =
+    os.proc("git log -n 1 --pretty=format:%H -- Profiler/src/ManualProfiling.scala")
+      .call().out.text
 }

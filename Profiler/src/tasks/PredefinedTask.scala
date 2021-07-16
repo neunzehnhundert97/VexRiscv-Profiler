@@ -47,7 +47,7 @@ final case class PredefinedTask(name: String, hexFile: String => String, version
         // Perform check on files
         if (file.exists)
           if ((file.parent / (file.nameWithoutExtension + ".elf")).exists)
-            Right(Task(hex))
+            Right(Task(s"$name $version", hex))
           else
             Error(s"There is no elf file.")
         else
