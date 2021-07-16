@@ -69,7 +69,7 @@ object Analysis {
           .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
         s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
         f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
-        s"Created at ${dateFormat.format(new Date())} under revision ${currentRevision()}" +
+        s"Created at ${dateFormat.format(new Date())} under revision ${currentRevision()} " +
         s"Profiling data was measured at ${dateFormat.format(new Date(profilingData.lastModifiedTime.toEpochMilli))}\n"
     // And write it to file
     File(out).write(output)
@@ -348,6 +348,6 @@ object Analysis {
 
   /** Uses git to fetch the revision of the profiler. */
   def currentRevision(): String =
-    os.proc("git log -n 1 --pretty=format:%H -- Profiler/src/ManualProfiling.scala")
+    os.proc("git", "log", "-n", 1, "--pretty=format:%H", "--", "Profiler/src/ManualProfiling.scala")
       .call().out.text
 }

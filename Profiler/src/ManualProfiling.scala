@@ -81,25 +81,29 @@ object ManualProfiling {
     config.debuggedFunction match {
       case None =>
         // Call profiler
-        try {
-          os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 1).call(stdout = os.Path(dataFile))
+        val prof = os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 1)
+          .call(stdout = os.pwd / os.RelPath(dataFile), check = false)
+        if (prof.exitCode != 0)
+          Error("The profiler exited with a non zero exit value")
+        else
           Success
-        } catch case e: os.SubprocessException => Error("The profiler exited with a non zero exit value")
       case Some(func) =>
         // Get function address from symbol table
-        try {
-          val symbolTable = os.proc(objdump, "-t", s"${hexFile.replace(".hex", ".elf")}").spawn()
-          // Match with grep the function name as a single word
-          val grep = os.proc("grep", "-P", raw"'\b$func\b'").call(stdin = symbolTable.stdout)
-          val functionAddress = grep.out.text.split(" ").head.strip
+        val symbolTable = os.proc(objdump, "-t", s"${hexFile.replace(".hex", ".elf")}").spawn()
+        // Match with grep the function name as a single word
+        val grep = os.proc("grep", "-P", raw"\b$func\b").spawn(stdin = symbolTable.stdout)
+        val functionAddress = grep.stdout.text.split(" ").head.strip
 
+        if (grep.exitCode() != 0 || functionAddress.isEmpty)
+          Error(s"The given symbol '$func' could not be found in the symbol table.")
+        else {
           // Call profiler
-          try {
-            os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 2, functionAddress, config.desiredCalls)
-              .call(stdout = os.Path(dataFile))
+          val prof = os.proc("./obj_dir/VVexRiscv", hexFile, config.bootAt, 2, functionAddress, config.desiredCalls)
+            .call(stdout = os.pwd / os.RelPath(dataFile), check = false)
+          if (prof.exitCode != 0)
+            Error("The profiler exited with a non zero exit value")
+          else
             Success
-          } catch case e: os.SubprocessException => Error("The profiler exited with a non zero exit value")
-
-        } catch case e: os.SubprocessException => Error(s"The given symbol '$func' could not be found in the symbol table.")
+        }
     }
 }
