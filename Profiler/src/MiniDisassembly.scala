@@ -20,13 +20,13 @@ final case class InstructionEncoding(mnemonic: String, pattern: String, encoding
     if (bin.zip(pattern).forall((real, pat) => pat == '-' || real == pat))
       Some(s"$mnemonic ${encodingType match {
         case EncodingType.I =>
-          s"x${rd(bin)}, x${rs1(bin)}, ${readNumber(bin, 31, 20)}"
+          s"${registerMapping(rd(bin))}, ${registerMapping(rs1(bin))}, ${readNumber(bin, 31, 20)}"
         case EncodingType.R =>
-          s"x${rd(bin)}, x${rs1(bin)}, x${rs2(bin)}"
+          s"${registerMapping(rd(bin))}, ${registerMapping(rs1(bin))}, ${registerMapping(rs2(bin))}"
         case EncodingType.S =>
-          s"x${rs2(bin)}, ${rd(bin) | readNumber(bin, 31, 25) << 5}(${rs1(bin)})"
+          s"${registerMapping(rs2(bin))}, ${rd(bin) | readNumber(bin, 31, 25) << 5}(${registerMapping(rs1(bin))})"
         case EncodingType.M =>
-          s"x${rd(bin)}, x${rs1(bin)}, x${rs2(bin)}, ${immM(bin)}"
+          s"${registerMapping(rd(bin))}, ${registerMapping(rs1(bin))}, ${registerMapping(rs2(bin))}, ${immM(bin)}"
       }}")
     else None
   }
@@ -50,3 +50,38 @@ final case class InstructionEncoding(mnemonic: String, pattern: String, encoding
   def readNumber(bin: String, upper: Int, lower: Int): Long =
     bin.drop(32 - upper - 1).take(upper - lower + 1).toLong(2)
 }
+
+val registerMapping = Map(
+  0 -> "zero",
+  1 -> "ra",
+  2 -> "sp",
+  3 -> "gp",
+  4 -> "tp",
+  5 -> "t0",
+  6 -> "t1",
+  7 -> "t2",
+  8 -> "s0",
+  9 -> "s1",
+  10 -> "a0",
+  11 -> "a1",
+  12 -> "a2",
+  13 -> "a3",
+  14 -> "a4",
+  15 -> "a5",
+  16 -> "a6",
+  17 -> "a7",
+  18 -> "s2",
+  19 -> "s3",
+  20 -> "s4",
+  21 -> "s5",
+  22 -> "s6",
+  23 -> "s7",
+  24 -> "s8",
+  25 -> "s9",
+  26 -> "s10",
+  27 -> "s11",
+  28 -> "t3",
+  29 -> "t4",
+  30 -> "t5",
+  31 -> "t6"
+).map((key, value) => key.toLong -> value)
