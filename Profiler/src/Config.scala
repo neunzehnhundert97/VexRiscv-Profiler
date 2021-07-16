@@ -16,18 +16,26 @@ final case class Config(
   bootAt: String,
   exclude: List[String],
   predefinedTasks: List[PredefinedTask],
-  postfix: Option[String]
+  postfix: Option[String],
+  prefix: Option[String]
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
   def reportUselessConfig: ErrorOrSuccess =
     Success
 
-  def postfixed: String = (debuggedFunction, postfix) match {
-    case None -> None             => ""
-    case Some(func) -> None       => s"-$func"
-    case None -> Some(post)       => s"-$post"
-    case Some(func) -> Some(post) => s"-$func-$post"
+  def prepostfixed(name: String): String = {
+    val postFixed = (debuggedFunction, postfix) match {
+      case (None, None)             => name
+      case (Some(func), None)       => s"$name-$func"
+      case (None, Some(post))       => s"$name-$post"
+      case (Some(func), Some(post)) => s"$name-$func-$post"
+    }
+
+    prefix match {
+      case None      => postFixed
+      case Some(pre) => s"$pre-$postFixed"
+    }
   }
 
 }
@@ -68,8 +76,9 @@ object Config {
     // Find calls to predefined tasks
     val customTasks = PredefinedTask.getTasksByNames(args.toList)
 
-    // Postfix for outputs in order to prevent overwriting
+    // Post/Prefix for outputs in order to prevent overwriting
     val postfix = extractArgumentOption(args, "postfix")
+    val prefix = extractArgumentOption(args, "prefix")
 
     // Put all in one object to ease passing around
     Config(
@@ -85,7 +94,8 @@ object Config {
       bootAt,
       exclude,
       customTasks,
-      postfix
+      postfix,
+      prefix
     )
   }
 }

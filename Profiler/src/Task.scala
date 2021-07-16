@@ -8,13 +8,12 @@ final case class Task(name: String, file: String) {
   def execute(implicit config: Config): Unit = {
     import config.*
 
-    val fileName = file.split("/").last.split(".hex").head
-    val dataFile = s"data/$fileName"
+    val fileName = prepostfixed(file.split("/").last.split(".hex").head)
 
     // Evaluate task
-    val result = profile(dataFile, config)
+    val result = profile(s"data/$fileName", config)
       .flatMap(_ => Right(reportSuccess("Done profiling", name)))
-      .flatMap(_ => analyze(dataFile, fileName, config))
+      .flatMap(_ => analyze(s"data/$fileName", fileName, config))
 
     // Report result
     result match {
@@ -28,7 +27,7 @@ final case class Task(name: String, file: String) {
   def profile(dataFile: String, config: Config) = {
     import config.*
     if (doProfile) {
-      ManualProfiling.profile(file, dataFile + postfixed, config)
+      ManualProfiling.profile(file, dataFile, config)
     } else Success
   }
 
@@ -36,9 +35,9 @@ final case class Task(name: String, file: String) {
     import config.*
     if (doAnalysis)
       Analysis(
-        dataFile + postfixed,
+        dataFile,
         s"${file.split(".hex").head}.elf",
-        s"results/$name" + postfixed,
+        s"results/$name",
         config
       )
     else
