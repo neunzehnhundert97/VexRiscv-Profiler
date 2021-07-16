@@ -11,23 +11,31 @@ import better.files._
 object Analysis {
   val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
-  def apply(log: String, elf: String, out: String, config: Config): ErrorOrSuccess =
-    try {
-      config.debuggedFunction match {
-        case None =>
-          highLevel(log, elf, out, config)
-        case Some(func) =>
-          lowLevel(s"$log", elf, s"$out", config)
-      }
-      Success
-    } catch case e: Exception => Error(s"An exception ocurred during analysis: ${e.getMessage}")
+  def apply(log: String, elf: String, out: String, config: Config): ErrorOrSuccess = {
+    // Verify log file
+    val logFile = File(log)
+    if (!logFile.exists)
+      Error(s"There is no data file '$log', maybe you forgot to run the profiler?")
+    else if (logFile.isEmpty)
+      Error(s"The file '$log' is empty. Maybe the profiler was given wrong arguments?")
+    else
+      // Execute analysis and catch all errors
+      try {
+        config.debuggedFunction match {
+          case None =>
+            highLevel(logFile, elf, out, config)
+          case Some(func) =>
+            lowLevel(logFile, elf, out, config)
+        }
+        Success
+      } catch case e: Exception => Error(s"An exception ocurred during analysis: ${e}")
+  }
 
-  def highLevel(log: String, elf: String, out: String, config: Config): Unit = {
+  def highLevel(log: File, elf: String, out: String, config: Config): Unit = {
     import config.*
 
     // Read measurements and parse them into case classes
-    val profilingData = File(log)
-    val data = profilingData.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m }
+    val data = log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m }
 
     // Read symbol and create mapping
     val (symbols, _) = parseSymbolTable(elf)
@@ -70,7 +78,7 @@ object Analysis {
         s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
         f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
         s"Created at ${dateFormat.format(new Date())} under revision ${currentRevision()} " +
-        s"Profiling data was measured at ${dateFormat.format(new Date(profilingData.lastModifiedTime.toEpochMilli))}\n"
+        s"Profiling data was measured at ${dateFormat.format(new Date(log.lastModifiedTime.toEpochMilli))}\n"
     // And write it to file
     File(out).write(output)
 
@@ -79,12 +87,11 @@ object Analysis {
       generateGraph(rootNode, relData, callMap, out)
   }
 
-  def lowLevel(log: String, elf: String, out: String, config: Config): Unit = {
+  def lowLevel(log: File, elf: String, out: String, config: Config): Unit = {
     import config.*
 
     // Read measurements and parse them
-    val profilingData = File(log)
-    val data = profilingData.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
+    val data = log.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
       .collect { case Some(mat) => mat.group(1) -> mat.group(2).toInt }
 
     // Read symbol and create mapping
