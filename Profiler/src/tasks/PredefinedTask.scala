@@ -49,8 +49,8 @@ final case class PredefinedTask(name: String, hexFile: String => String, version
           if ((file.parent / (file.nameWithoutExtension + ".elf")).exists)
             Right(Task(hex))
           else
-            Left(s"There is no elf file.")
+            Error(s"There is no elf file.")
         else
-          Left(s"Given file $hex does not exist.")
+          Error(s"Given file $hex does not exist.")
       }
 }

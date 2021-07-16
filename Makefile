@@ -53,8 +53,8 @@ mceliece:
 
 .PHONY: bike
 bike:
-	cd ../BIKE-Additional/BIKE-1 && $(MAKE) clean all
-	cd ../BIKE-Additional/BIKE-3 && $(MAKE) clean all
+	cd ../BIKE-Additional/BIKE-1 && $(MAKE) clean all PROFILE=$(PROFILE)
+	cd ../BIKE-Additional/BIKE-3 && $(MAKE) clean all PROFILE=$(PROFILE)
 
 clean:
 	rm -rf obj_dir

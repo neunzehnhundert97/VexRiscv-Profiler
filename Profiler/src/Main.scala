@@ -25,4 +25,5 @@ def printHelp(): Unit =
              |  exclude=[name,name...]: Functions to be excluded from the call graph
              |  take=[n]              : Takes only n items from each predefined task's list, take happens after drop
              |  drop=[n]              : Drops n items from each predefined task's list, drop happens before take
+             |  postfix=[string]      : Appends the given string to every produced output file
   """.stripMargin)

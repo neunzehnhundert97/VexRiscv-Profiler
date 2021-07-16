@@ -24,12 +24,8 @@ object ManualProfiling {
   inline def literalBoolean(inline cond: Boolean): String =
     if (cond) codeOf(cond).split('.').last else ""
 
-  /** Reads arguments of the form "name=" and returns them as an option, optionally converted. */
-  def extractArgumentOption[A](args: Seq[String], name: String, conversion: String => A = identity): Option[A] =
-    args.find(_.startsWith(s"$name=")).map(_.substring(name.length + 1)).map(conversion)
-
   def apply(args: Seq[String]): Unit = {
-    val config = readCLIParameters(args)
+    val config = Config(args)
     import config.*
 
     // Build profiler
@@ -68,52 +64,6 @@ object ManualProfiling {
     }
   }
 
-  def readCLIParameters(args: Seq[String]): Config = {
-    // Boolean arguments
-    val doAnalysis = args.contains("analyse")
-    val doProfile = args.contains("profile")
-    val visualize = args.contains("graph") || args.contains("visualize")
-
-    // Reduce the number of versions in predefined tasks to profile
-    val take = extractArgumentOption(args, "take", _.toInt)
-    val drop = extractArgumentOption(args, "drop", _.toInt)
-
-    // Arguments for the instruction analysis
-    val debuggedFunction = extractArgumentOption(args, "func")
-    val desiredCalls = extractArgumentOption(args, "calls", _.toInt).getOrElse(1)
-
-    // Direct input of files to debug
-    val manualInputs = extractArgumentOption(args, "input", _.split(',').toList).getOrElse(Nil)
-
-    // Flags for the profiler's makefile
-    val profilerMakeFlags = extractArgumentOption(args, "profilerFlags", _.split(',').toList).getOrElse(Nil)
-
-    // Address to start execution at
-    val bootAt = extractArgumentOption(args, "bootAt").getOrElse("80000000")
-
-    // A list of function names to exclude
-    val exclude = extractArgumentOption(args, "exclude", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
-
-    // Find calls to predefined tasks
-    val customTasks = PredefinedTask.getTasksByNames(args.toList)
-
-    // Put all in one object to ease passing around
-    Config(
-      doAnalysis,
-      doProfile,
-      manualInputs,
-      visualize,
-      take,
-      drop,
-      debuggedFunction,
-      desiredCalls,
-      profilerMakeFlags,
-      bootAt,
-      exclude,
-      customTasks
-    )
-  }
-
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
   def buildProfiler(config: Config): ErrorOrSuccess = {
     import config.*
@@ -128,26 +78,24 @@ object ManualProfiling {
         s"PROFILE=Y ${profilerMakeFlags.mkString(" ")}"
       ).call(check = false, mergeErrIntoOut = true)
       if (r.exitCode == 0)
-        Right(())
-      else Left(s"The profiler could not be build: ${r.out.text}")
-    } else Right(())
+        Success
+      else Error(s"The profiler could not be build: ${r.out.text}")
+    } else Success
   }
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
   def profile(
     hexFile: String,
     dataFile: String,
-    debuggedFunction: Option[String],
-    calls: Int,
-    bootAt: String
+    config: Config
   ): ErrorOrSuccess =
-    debuggedFunction match {
+    config.debuggedFunction match {
       case None =>
         // Call profiler
         try {
-          (s"./obj_dir/VVexRiscv $hexFile $bootAt 1" #> File(dataFile).toJava).!
-          Right(())
-        } catch case e: RuntimeException => Left("The profiler exited with a non zero exit value")
+          (s"./obj_dir/VVexRiscv $hexFile ${config.bootAt} 1" #> File(dataFile).toJava).!
+          Success
+        } catch case e: RuntimeException => Error("The profiler exited with a non zero exit value")
       case Some(func) =>
         // Get function address from symbol table
         try {
@@ -159,11 +107,12 @@ object ManualProfiling {
 
           // Call profiler
           try {
-            (s"./obj_dir/VVexRiscv $hexFile $bootAt 2 $functionAddress $calls" #> File(s"$dataFile-$func").toJava).!
-            Right(())
-          } catch case e: RuntimeException => Left("The profiler exited with a non zero exit value")
+            (s"./obj_dir/VVexRiscv $hexFile ${config.bootAt} 2 $functionAddress ${config.desiredCalls}" #>
+              File(s"$dataFile").toJava).!
+            Success
+          } catch case e: RuntimeException => Error("The profiler exited with a non zero exit value")
 
-        } catch case e: RuntimeException => Left(s"The given symbol '$func' could not be found in the symbol table.")
+        } catch case e: RuntimeException => Error(s"The given symbol '$func' could not be found in the symbol table.")
     }
 
   def analyse(log: String, elf: String, out: String, config: Config): ErrorOrSuccess =
@@ -172,10 +121,10 @@ object ManualProfiling {
         case None =>
           highLevel(log, elf, out, config)
         case Some(func) =>
-          lowLevel(s"$log-$func", elf, s"$out-$func", config)
+          lowLevel(s"$log", elf, s"$out", config)
       }
-      Right(())
-    } catch case e: Exception => Left(s"An exception ocurred during analysis: ${e.getMessage}")
+      Success
+    } catch case e: Exception => Error(s"An exception ocurred during analysis: ${e.getMessage}")
 
   def highLevel(log: String, elf: String, out: String, config: Config): Unit = {
     import config.*

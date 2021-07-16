@@ -28,21 +28,21 @@ final case class Task(file: String) {
   def profile(dataFile: String, config: Config) = {
     import config.*
     if (doProfile) {
-      ManualProfiling.profile(file, dataFile, debuggedFunction, desiredCalls, bootAt)
-    } else Right(())
+      ManualProfiling.profile(file, dataFile + postfixed, config)
+    } else Success
   }
 
   def analyze(dataFile: String, name: String, config: Config) = {
     import config.*
     if (doAnalysis)
       ManualProfiling.analyse(
-        dataFile,
+        dataFile + postfixed,
         s"${file.split(".hex").head}.elf",
-        s"results/$name",
+        s"results/$name" + postfixed,
         config
       )
     else
-      Right(())
+      Success
   }
 }
 
@@ -50,4 +50,6 @@ final case class Task(file: String) {
 // I'm slowly evolving this project in a more functional direction
 type ErrorOrSuccess = Either[String, Unit]
 type Success = Right[String, Unit]
+def Success = Right(())
 type Error = Left[String, Unit]
+def Error = Left
