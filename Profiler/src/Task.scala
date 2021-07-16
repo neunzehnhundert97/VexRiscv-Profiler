@@ -35,7 +35,7 @@ final case class Task(file: String) {
   def analyze(dataFile: String, name: String, config: Config) = {
     import config.*
     if (doAnalysis)
-      ManualProfiling.analyse(
+      Analysis(
         dataFile + postfixed,
         s"${file.split(".hex").head}.elf",
         s"results/$name" + postfixed,

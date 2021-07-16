@@ -52,6 +52,8 @@ measurement2:
     csrwi mscratch, 0x1
 ```
 
+Currently, the profiler supports two modes of operation. A high level measurement which records execution time for every function and can generate a colorized callgraph or a low level analysis that targets a single function and its decedents and record cycle counts for each individual instruction.
+
 ```
 Help for VexRiscv Profiler
 Usage with source: mill      Profiler.run      [options]
@@ -67,4 +69,7 @@ Options can be supplied in arbitrary order and don't follow the usual standards
   profilerFlags=[flags] : Flags that will be given to the profilers makefile
   bootAt=[address]      : Address to start execution at (default 80000000)
   exclude=[name,name...]: Functions to be excluded from the call graph
+  take=[n]              : Takes only n items from each predefined task's list, take happens after drop
+  drop=[n]              : Drops n items from each predefined task's list, drop happens before take
+  postfix=[string]      : Appends the given string to every produced output file
 ```
