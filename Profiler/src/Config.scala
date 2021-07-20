@@ -1,15 +1,20 @@
 package masterthesis
 package profiler
 
+import zio.IO
+
 import tasks.PredefinedTask
 
 final case class Config(
-  doAnalysis: Boolean,
   doProfile: Boolean,
+  doAnalysis: Boolean,
+  doBenchmark: Boolean,
   manualInputs: List[String],
   visualize: Boolean,
   take: Option[Int],
   drop: Option[Int],
+  select: List[Int],
+  variants: List[Int],
   debuggedFunction: Option[String],
   desiredCalls: Int,
   profilerMakeFlags: List[String],
@@ -21,9 +26,22 @@ final case class Config(
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
-  def reportUselessConfig: ErrorOrSuccess =
-    Success
+  def reportUselessConfig: IO[String, Unit] = {
+    if (!doProfile && !doAnalysis && !doBenchmark)
+      IO.fail("Nothing to do, you should either profile or analyse.")
+    else if (doBenchmark && variants.length <= 1)
+      IO.fail("A benchmark can only be usefull with multiple variants to compare.")
+    else if (doBenchmark && manualInputs.nonEmpty)
+      IO.fail("A benchmark is currently only supported for predefined tasks.")
+    else if (doBenchmark && predefinedTasks.length != 1)
+      IO.fail("A bechnmark may currently only be conducted for one target at a time")
+    else if ((take.nonEmpty || drop.nonEmpty) && select.nonEmpty)
+      IO.fail("Select can only be used without drop and take.")
+    else
+      IO.unit
+  }
 
+  /** Add pre- and postfixes to the given string. */
   def prepostfixed(name: String): String = {
     val postFixed = (debuggedFunction, postfix) match {
       case (None, None)             => name
@@ -37,7 +55,6 @@ final case class Config(
       case Some(pre) => s"$pre-$postFixed"
     }
   }
-
 }
 
 object Config {
@@ -46,16 +63,21 @@ object Config {
   def extractArgumentOption[A](args: Seq[String], name: String, conversion: String => A = identity): Option[A] =
     args.find(_.startsWith(s"$name=")).map(_.substring(name.length + 1)).map(conversion)
 
-  /** Create configuration from command line arguments. */
+  /** Create configuration from command line arguments. The order does not matter. */
   def apply(args: Seq[String]): Config = {
     // Boolean arguments
     val doAnalysis = args.contains("analyse")
     val doProfile = args.contains("profile")
+    val doBenchmark = args.contains("benchmark")
     val visualize = args.contains("graph") || args.contains("visualize")
 
     // Reduce the number of versions in predefined tasks to profile
     val take = extractArgumentOption(args, "take", _.toInt)
     val drop = extractArgumentOption(args, "drop", _.toInt)
+    val select = extractArgumentOption(args, "select", _.split(",").map(_.toInt).toList).getOrElse(Nil)
+
+    // Variants for benchmarks
+    val variants = extractArgumentOption(args, "variants", _.split(",").toList.map(_.toInt)).getOrElse(Nil)
 
     // Arguments for the instruction analysis
     val debuggedFunction = extractArgumentOption(args, "func")
@@ -82,12 +104,15 @@ object Config {
 
     // Put all in one object to ease passing around
     Config(
-      doAnalysis,
       doProfile,
+      doAnalysis,
+      doBenchmark,
       manualInputs,
       visualize,
       take,
       drop,
+      select,
+      variants,
       debuggedFunction,
       desiredCalls,
       profilerMakeFlags,

@@ -30,31 +30,19 @@ obj_dir/VVexRiscv: obj_dir/VVexRiscv.cpp
 
 .PHONY: dummies
 dummies:
-	cd ../dummies/AES-128 && $(MAKE) clean all PROFILE=$(PROFILE) CACHE_OFFSET=$(CACHE_OFFSET)
+	cd ../dummies/AES-128 && $(MAKE) clean all PROFILE=$(PROFILE) POSTFIX=$(POSTFIX) 
 
 .PHONY: hqc
 hqc:
-	cd ../hqc/hqc-128 && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	cd ../hqc/hqc-192 && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	cd ../hqc/hqc-256 && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
+	cd ../hqc/hqc-$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
 
 .PHONY: mceliece
 mceliece:
-	cd ../McEliece/mceliece348864   && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	cd ../McEliece/mceliece348864f  && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	cd ../McEliece/mceliece460896   && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	cd ../McEliece/mceliece460896f  && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece6688128  && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece6688128f && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece6960119  && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece6960119f && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece8192128  && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
-	#cd ../McEliece/mceliece8192128f && $(MAKE) clean all PROFILE=$(PROFILE) VERBOSE=$(VERBOSE) CACHE_OFFSET=$(CACHE_OFFSET)
+	cd ../McEliece/mceliece$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
 
 .PHONY: bike
 bike:
-	cd ../BIKE-Additional/BIKE-1 && $(MAKE) clean all PROFILE=$(PROFILE)
-	cd ../BIKE-Additional/BIKE-3 && $(MAKE) clean all PROFILE=$(PROFILE)
+	cd ../BIKE-Additional/BIKE-$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
 
 clean:
 	rm -rf obj_dir

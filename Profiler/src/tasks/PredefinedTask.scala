@@ -23,7 +23,7 @@ object PredefinedTask {
     *   Indicates that this task has a target in the profiler's makefile which should be executed.
     */
   def apply(name: String, hexFile: String, build: Boolean): PredefinedTask =
-    PredefinedTask(name, _ => hexFile, List(""), build)
+    PredefinedTask(name, (_, _) => hexFile, List(""), build)
 }
 
 /** Case class for a shortcut for often tested files.
@@ -36,21 +36,42 @@ object PredefinedTask {
   * @param build
   *   Indicates that this task has a target in the profiler's makefile which should be executed.
   */
-final case class PredefinedTask(name: String, hexFile: String => String, versions: List[String], build: Boolean = false) {
+final case class PredefinedTask(
+  name: String,
+  hexFile: (String, String) => String,
+  versions: List[String],
+  build: Boolean = false
+) {
 
   /** Generates tasks for the profiler to execute. */
-  def generateTasks: List[Either[String, Task]] =
-    for (version <- versions)
-      yield {
-        val hex = hexFile(version)
-        val file = File(hex)
-        // Perform check on files
-        if (file.exists)
-          if ((file.parent / (file.nameWithoutExtension + ".elf")).exists)
-            Right(Task(s"$name $version", hex))
-          else
-            Error(s"There is no elf file.")
-        else
-          Error(s"Given file $hex does not exist.")
-      }
+  def generateTasks(config: Config): List[ProfilingTask] = {
+    // Handle takes and drops, or select
+    val selectedVersions = (config.take, config.drop, config.select).match {
+      case (None, None, Nil)             => versions
+      case (Some(take), None, Nil)       => versions.take(take)
+      case (None, Some(drop), Nil)       => versions.drop(drop)
+      case (Some(take), Some(drop), Nil) => versions.drop(drop).take(take)
+      case (None, None, numbers)         => numbers.map(i => versions(i))
+        // Error is not catched, as this case should never happen
+      case _ => ???
+    }
+
+    // Generate tasks
+    if (config.variants.isEmpty)
+      for (version <- selectedVersions)
+        yield ProfilingTask(s"$name $version", version, hexFile(version, ""), Some(name), None, config)
+    else
+      for (version <- selectedVersions; variant <- config.variants)
+        yield {
+          ProfilingTask(
+            s"$name $version $variant",
+            hexFile(version, variant.toString),
+            version,
+            Some(name),
+            Some(variant),
+            config
+          )
+        }
+  }
+
 }

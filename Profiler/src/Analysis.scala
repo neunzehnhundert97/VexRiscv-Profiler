@@ -8,40 +8,64 @@ import scalatags.Text.all._
 
 import better.files._
 
+import zio.{IO, Task, ZIO, UIO, URIO, RIO}
+import zio.blocking.Blocking
+
+import upickle.default.read
+
 object Analysis {
   val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
-  def apply(log: String, elf: String, out: String, config: Config): ErrorOrSuccess = {
+  def apply(log: String, elf: String, out: String, config: Config): ZIO[Blocking, String, Unit] = {
     // Verify log file
     val logFile = File(log)
     if (!logFile.exists)
-      Error(s"There is no data file '$log', maybe you forgot to run the profiler?")
+      IO.fail(s"There is no data file '$log', maybe you forgot to run the profiler?")
     else if (logFile.isEmpty)
-      Error(s"The file '$log' is empty. Maybe the profiler was given wrong arguments?")
+      IO.fail(s"The file '$log' is empty. Maybe the profiler was given wrong arguments?")
     else
       // Execute analysis and catch all errors
-      try {
-        config.debuggedFunction match {
-          case None =>
-            highLevel(logFile, elf, out, config)
-          case Some(func) =>
-            lowLevel(logFile, elf, out, config)
-        }
-        Success
-      } catch case e: Exception => Error(s"An exception ocurred during analysis: ${e}")
+      config.debuggedFunction.match {
+        case None =>
+          highLevel(logFile, elf, out, config)
+        case Some(func) =>
+          lowLevel(logFile, elf, out, config)
+      }.mapError(e => s"An exception ocurred during analysis: ${e}")
   }
 
-  def highLevel(log: File, elf: String, out: String, config: Config): Unit = {
+  /** The high level analysis given cycles counts and call times on a function level. Optionally, a call graph can be produced. */
+  def highLevel(log: File, elf: String, out: String, config: Config) = {
     import config.*
 
-    // Read measurements and parse them into case classes
-    val data = log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m }
+    for {
+      // Read measurements and parse them into case classes
+      data <- IO.effect(log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m })
+      // Read symbol and create mapping
+      (symbols, _) <- readSymbolTable(s"$log-sym.json")
+      revision <- currentRevision
+      currentDate <- IO.effect(new Date())
+      logDate <- IO.effect(new Date(log.lastModifiedTime.toEpochMilli))
+      // Analyze collected data
+      tree <- IO.fromOption(accumulateSophisticated(data, symbols)).mapError(_ => "Call graph could not be created")
+      callTreeData = analyzeCallTree(tree, symbols, config)
+      // Generate text output
+      report = callGraphReport(callTreeData, currentDate, logDate, revision)
+      _ <- writeToFile(out)(report)
+      // Generate graph
+      _ <- IO.when(visualize)(
+        writeToFile(out + ".png")(generateDotGraph(callTreeData)) *> generateDotGraph(out + ".png", out + ".png")
+      )
+    } yield ()
+  }
 
-    // Read symbol and create mapping
-    val (symbols, _) = parseSymbolTable(elf)
+  type CallTreeData =
+    (CallNode, List[(String, Long, Long)], List[(String, Long, Double, Long, Double)], Map[String, Map[String, (Long, Long)]])
 
+  /** Builds the call tree from measurements and provides analytical data. */
+  def analyzeCallTree(tree: CallNode, symbols: Map[String, String], config: Config): CallTreeData = {
+    import config.*
     // Build call tree
-    val rootNode = accumulateSophisticated(data, symbols).cutOut(exclude)
+    val rootNode = tree.cutOut(exclude)
     // Accumulate times
     val accData = rootNode.collectSum().map((a, b) => (a, b._1, b._2)).toList
 
@@ -54,6 +78,12 @@ object Analysis {
     // Get call map
     val callMap = rootNode.callMap()
 
+    (rootNode, accData, relData, callMap)
+  }
+
+  /** Creates a table as string describing the results off the call tree analysis. */
+  def callGraphReport(data: CallTreeData, date: Date, logDate: Date, revision: String): String = {
+    val (rootNode, accData, relData, callMap) = data
     val sumOfCalls = callMap.valuesIterator.flatMap(_.valuesIterator).map(_._1).sum
     // At minimum, each instruction uses two instructions to signal entry and exit
     // These instructions (csrw and csrwi) both take three cycles
@@ -70,69 +100,79 @@ object Analysis {
     val derivation = avgOverhead / 2
 
     // Create output string
-    var output =
-      f"| ${"Function name"}%-43s | ${"Total abs"}%13s | ${"Total rel"}%13s | ${"Own abs"}%13s | ${"Own abs"}%13s | ${"Total/Own rel"}%13s |%n" +
-        (for ((func, total, totalRel, own, ownRel) <- relData.toList.sortBy(-_._4))
-          yield f"| ${func}%-43s | ${total}%13d | ${totalRel * 100}%12.2f%% | ${own}%13d | ${ownRel * 100}%12.2f%% | ${own * 100.0 / total}%12.2f%% |")
-          .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
-        s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
-        f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
-        s"Created at ${dateFormat.format(new Date())} under revision ${currentRevision()} " +
-        s"Profiling data was measured at ${dateFormat.format(new Date(log.lastModifiedTime.toEpochMilli))}\n"
-    // And write it to file
-    File(out).write(output)
-
-    // If requested, do the graph
-    if (visualize)
-      generateGraph(rootNode, relData, callMap, out)
+    f"| ${"Function name"}%-43s | ${"Total abs"}%13s | ${"Total rel"}%13s | ${"Own abs"}%13s | ${"Own abs"}%13s | ${"Total/Own rel"}%13s |%n" +
+      (for ((func, total, totalRel, own, ownRel) <- relData.toList.sortBy(-_._4))
+        yield f"| ${func}%-43s | ${total}%13d | ${totalRel * 100}%12.2f%% | ${own}%13d | ${ownRel * 100}%12.2f%% | ${own * 100.0 / total}%12.2f%% |")
+        .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
+      s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
+      f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
+      s"Created at ${dateFormat.format(date)} under revision $revision " +
+      s"Profiling data was measured at ${dateFormat.format(logDate)}\n"
   }
 
-  def lowLevel(log: File, elf: String, out: String, config: Config): Unit = {
+  /** A detailed overview for a single function and its decendents is created, giving cycles count for each individual
+    * instruction. A refined HTML can be created additionally.
+    */
+  def lowLevel(log: File, elf: String, out: String, config: Config): RIO[Blocking, Unit] = {
     import config.*
 
-    // Read measurements and parse them
-    val data = log.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
-      .collect { case Some(mat) => mat.group(1) -> mat.group(2).toInt }
+    for {
+      // Read measurements and parse them
+      data <- IO.effect(log.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
+        .collect { case Some(mat) => mat.group(1) -> mat.group(2).toInt })
+      // Read symbol and create mapping
+      symbolMappings <- readSymbolTable(s"$log-sym.json")
+      // Read disassembly and create mapping from address to mnemonic and operands
+      symbols <- IO.effect(os.proc("riscv32-unknown-elf-objdump", "-d", elf).call().out.lines)
+      // Read custom encodings from file
+      additionalEncoding <- parseAdditionalInstructions("instructions_c.scv")
+      // Do the analysis
+      (output, groupedInstructions) = analyzeCycleCounts(data, symbolMappings, symbols, additionalEncoding)
+      // Write text output
+      _ <- writeToFile(out)(output)
+      _ <- IO.when(visualize)(writeToFile(s"$out.html")(generateHotnessHTML(groupedInstructions, out)))
+    } yield ()
+  }
 
-    // Read symbol and create mapping
-    val (stringToSymbols, longToSymbols) = parseSymbolTable(elf)
-
-    val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]{8})\s+(.+)".r
+  /** */
+  def analyzeCycleCounts(
+    data: Iterator[(String, Int)],
+    symbolMappings: (Map[String, String], Map[Long, String]),
+    symbols: Vector[String],
+    additionalEncoding: List[InstructionEncoding]
+  ): (String, List[(String, List[(String, List[Int], String)])]) = {
+    val (stringToSymbols, longToSymbols) = symbolMappings
+    val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]+)\s+(.+)".r
 
     // Construct a mapping of a function to its instructions and cycle counts
     // Put it into a block to free memory of local variables
-    val groupedInstructions = {
-      // Read disassembly and create mapping from address to mnemonic and operands
-      val proc = os.proc("riscv32-unknown-elf-objdump", "-d", elf).spawn()
-      val instructionsAll = proc.stdout.lines.map(disassemblyRegex.findFirstMatchIn)
-        .collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
-        .map((addr, ins) => (("0" * (8 - addr.length)) + addr, ins)).toMap
 
-      // Read custom encodings from file
-      val additionalEncoding = parseAdditionalInstructions("instructions_c.scv")
+    val instructionsAll = symbols.map(disassemblyRegex.findFirstMatchIn)
+      .collect { case Some(mat) => mat.group(1).toUpperCase -> mat.group(3) }
+      .map((addr, ins) => (("0" * (8 - addr.length)) + addr, ins)).toMap
 
-      val instructions = instructionsAll.map((addr, ins) =>
-        // If the disassembly failed to decode the instruction, try to do it with the additonal encodings
-        if (ins.startsWith("0x"))
-          addr -> additionalEncoding.map(e => e.decode(ins)).collectFirst { case Some(i) => i }.getOrElse(ins)
-        else
-          addr -> ins
-      )
+    val instructions = instructionsAll.map((addr, ins) =>
+      // If the disassembly failed to decode the instruction, try to do it with the additonal encodings
+      if (ins.startsWith("0x"))
+        addr -> additionalEncoding.map(e => e.decode(ins)).collectFirst { case Some(i) => i }.getOrElse(ins)
+      else
+        addr -> ins
+    )
 
-      // Compute cycle counts of groups
-      val cycleCounts = data.foldLeft(Map[String, List[Int]]()) {
-        case (map, (addr, cycles)) => map.updatedWith(addr) {
-            case None       => Some(List(cycles))
-            case Some(list) => Some(cycles :: list)
-          }
-      }
-
-      // Group by parent function
-      cycleCounts.map((addr, cycles) => (addr, cycles, instructions(addr)))
-        .groupBy((addr, cycles, ins) =>
-          longToSymbols.map((num, sym) => (addr.toLong(16) - num, sym)).filter((num, _) => num > 0).minBy(_._1)._2
-        ).map((func, data) => (func, data.toList.sortBy(_._1))).toList.sortBy(_._2.head._1)
+    // Compute cycle counts of groups
+    val cycleCounts = data.foldLeft(Map[String, List[Int]]()) {
+      case (map, (addr, cycles)) => map.updatedWith(addr) {
+          case None       => Some(List(cycles))
+          case Some(list) => Some(cycles :: list)
+        }
     }
+
+    // Group by parent function
+    val groupedInstructions = cycleCounts.map { (addr, cycles) =>
+      (addr, cycles, instructions.getOrElse(addr, "OUT OF CODE"))
+    }.groupBy((addr, cycles, ins) =>
+      longToSymbols.map((num, sym) => (addr.toLong(16) - num, sym)).filter((num, _) => num > 0).minBy(_._1)._2
+    ).map((func, data) => (func, data.toList.sortBy(_._1))).toList.sortBy(_._2.head._1)
 
     // Create text output
     val output =
@@ -152,19 +192,12 @@ object Analysis {
           "\n"
         ) + "\n").mkString("\n")
 
-    // Write text output
-    File(out).write(output)
-
-    if (visualize)
-      generateHotnessHTML(groupedInstructions, out)
+    output -> groupedInstructions
   }
 
-  def generateGraph(
-    root: CallNode,
-    timings: List[(String, Long, Double, Long, Double)],
-    callMap: Map[String, Map[String, (Long, Long)]],
-    out: String
-  ): Unit = {
+  /** Create a callgraph using the dot language and write it to disk. */
+  def generateDotGraph(data: CallTreeData): String = {
+    val (root, _, timings, callMap) = data
     // Flatten call map
     val allCalls = callMap.values.toSeq.flatMap(_.toSeq).groupMapReduce(_._1)(_._2._1)(_ + _)
 
@@ -177,7 +210,7 @@ object Analysis {
       // Take only functions with at least 5% runtime
       .filter(_._2._2 > 0.05)
       .map((func, data) =>
-        f"""$func [shape=box,label="$func\n${data._2 * 100}%4.2f%%\n(${data._4 * 100}%4.2f%%)${
+        f""""$func" [shape=box,label="$func\n${data._2 * 100}%4.2f%%\n(${data._4 * 100}%4.2f%%)${
           val calls = allCalls.getOrElse(func, 1L)
           if (calls > 1) f"\n${calls}x" else ""
         }",fillcolor="${gradient(
@@ -192,16 +225,18 @@ object Analysis {
       .map((caller, calles) =>
         // Take only functions with at least 5% runtime
         calles.filter(c => timeMapping(c._1)._2 > 0.05)
-          .map((calle, count) => s"""$caller -> $calle [label="${if (count._2 > 1) s"${count._2}x" else ""}"];""")
+          .map((calle, count) => s""""$caller" -> "$calle" [label="${if (count._2 > 1) s"${count._2}x" else ""}"];""")
           .mkString("\n")
       )
       .mkString("\n")
 
-    // Write to file
-    File(out + ".png").write(s"""digraph {bgcolor="transparent" \n $nodes $edges}""")
-    // Convert to graph and overwrite dot file
-    os.proc("dot", "-Tpng", out + ".png", "-o", out + ".png").call()
+    s"""digraph {bgcolor="transparent" \n $nodes $edges}"""
+
   }
+
+  /** Converts the given dotfile into an PNG image. Needs the executable "dot" to be present in PATH. */
+  def generateDotGraph(dotFile: String, imageFile: String): Task[Unit] =
+    IO.effect(os.proc("dot", "-Tpng", imageFile, "-o", dotFile).call()).discard
 
   /** Return color string for a gradient. */
   def gradient(position: Double): String = {
@@ -218,9 +253,9 @@ object Analysis {
   def generateHotnessHTML(
     groupedInstructions: List[String -> List[(String, List[Int], String)]],
     out: String
-  ): Unit = {
+  ): String =
     // Generate the HTML using scalatags
-    val output = doctype("HTML")(html(
+    doctype("HTML")(html(
       head(
         tag("style")(
           raw("td > p {margin-left: 20px;margin-right:20px;margin-top: 0;margin-bottom: 0} " +
@@ -296,12 +331,8 @@ object Analysis {
       )
     )).render
 
-    // Write output
-    File(s"$out.html").write(output)
-  }
-
   /** Build a call tree of the traces. */
-  def accumulateSophisticated(data: Iterator[FunctionMeasurement], symbols: Map[String, String]) = {
+  def accumulateSophisticated(data: Iterator[FunctionMeasurement], symbols: Map[String, String]): Option[CallNode] = {
     // Build tree
     data.foldLeft((List[CallNode](), List[Long](), 0)) {
       // Entering a function
@@ -320,26 +351,18 @@ object Analysis {
           rest,
           depth - 1
         )
-    }._1.head
+    }._1.headOption
   }
 
-  /** Creates the symbol table of a given elf and return two mappings from addresses to symbols, one with longs and one with
-    * strings.
-    */
-  def parseSymbolTable(file: String): (Map[String, String], Map[Long, String]) = {
+  /** Reads the dumped symbol table. */
+  def readSymbolTable(file: String): RIO[Blocking, (Map[String, String], Map[Long, String])] = for {
     // Read symbol and create mapping
-    val stringToSymbols = os.proc(ManualProfiling.objdump, "-t", file).call().out.text
-      // Split lines, split columns
-      .split("\n").map(_.split(" "))
-      // take address and symbol name
-      .filter(_.length > 2).map(a => raw"[0-9,a-f,A-F]{8}".r.findFirstIn(a.head) -> a.last)
-      .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap
-
-    stringToSymbols -> stringToSymbols.map((addr, sym) => addr.toLong(16) -> sym)
-  }
+    stringToSymbols <- IO.effect(read[Map[String, String]](File(file).contentAsString))
+    // .mapError(_ => "Could not read dumped symbol table")
+  } yield stringToSymbols -> stringToSymbols.map((addr, sym) => addr.toLong(16) -> sym)
 
   /** Read the given csv of definitions. */
-  def parseAdditionalInstructions(file: String): List[InstructionEncoding] = {
+  def parseAdditionalInstructions(file: String): Task[List[InstructionEncoding]] = IO.effect {
     // Read csv
     val file = File("instructions_s.csv")
     if (file.exists) {
@@ -354,7 +377,8 @@ object Analysis {
   }
 
   /** Uses git to fetch the revision of the profiler. */
-  def currentRevision(): String =
+  def currentRevision: Task[String] = IO.effect {
     os.proc("git", "log", "-n", 1, "--pretty=format:%H", "--", "Profiler/src/ManualProfiling.scala")
       .call().out.text
+  }
 }
