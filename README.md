@@ -52,7 +52,11 @@ measurement2:
     csrwi mscratch, 0x1
 ```
 
-Currently, the profiler supports two modes of operation. A high level measurement which records execution time for every function and can generate a colorized callgraph or a low level analysis that targets a single function and its decedents and record cycle counts for each individual instruction.
+Currently, the profiler supports three modes of operation.
+
+* a high level measurement which records execution time for every function and can generate a colorized callgraph
+* a low level analysis that targets a single function and its decedents and record cycle counts for each individual instruction
+* a benchmark which records execution times of multiple variants of the same program and creates a report
 
 ```
 Help for VexRiscv Profiler
@@ -63,13 +67,16 @@ Options can be supplied in arbitrary order and don't follow the usual standards
   help, -h, --h         : Display this help
   profile               : Perform the profiling
   analysis              : Perform a analysis
+  benchmark             : Perform a benchmark, only usefull with one target and variants
   graph                 : Create a graphical representation for the given analysis
   func=[name]           : Name of a function for instruction level analysis. Also changed the analysis mode
+  variants=[v1[,v2..]]  : A list of variants to work on, for instance to benchmark different versions (only predefined tasks)
   input=[file,file...]  : Input files to profile. Expected to be .hex with a .elf of the same name in the same directory
   profilerFlags=[flags] : Flags that will be given to the profilers makefile
   bootAt=[address]      : Address to start execution at (default 80000000)
   exclude=[name,name...]: Functions to be excluded from the call graph
   take=[n]              : Takes only n items from each predefined task's list, take happens after drop
   drop=[n]              : Drops n items from each predefined task's list, drop happens before take
+  select=[n[,n..]]      : Selects the given indices from each predefined task's list, not compatible with take or drop
   postfix=[string]      : Appends the given string to every produced output file
 ```
