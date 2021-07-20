@@ -10,9 +10,10 @@ object Profiler extends ScalaModule {
 
   // Libraries
   def ivyDeps = Agg(
-    ivy"org.scala-lang.modules::scala-parallel-collections:1.0.3",
     ivy"com.github.pathikrit::better-files::3.9.1".withDottyCompat(scalaVersion()),
     ivy"com.lihaoyi::scalatags:0.9.4".withDottyCompat(scalaVersion()),
-    ivy"com.lihaoyi::os-lib:0.7.8"
+    ivy"com.lihaoyi::os-lib:0.7.8",
+    ivy"com.lihaoyi::upickle::1.3.15",
+    ivy"dev.zio::zio:1.0.9"
   )
 }

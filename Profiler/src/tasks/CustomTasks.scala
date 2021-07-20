@@ -6,17 +6,17 @@ package tasks
 def customTasks: List[PredefinedTask] = List(
   PredefinedTask(
     "hqc",
-    version => s"../hqc/hqc-$version/bin/hqc-$version.hex",
+    (version, variant) => s"../hqc/hqc-$version/bin${if (variant.isEmpty) "" else s"-$variant"}/hqc-$version.hex",
     List("128", "192", "256")
   ),
   PredefinedTask(
     "mceliece",
-    version => s"../McEliece/mceliece$version/bin/mceliece$version.hex",
+    (version, variant) => s"../McEliece/mceliece$version/bin${if (variant.isEmpty) "" else s"-$variant"}/mceliece$version.hex",
     List("348864", "460896", "348864f", "460896f")
   ),
   PredefinedTask(
     "bike",
-    version => s"../BIKE-Additional/BIKE-$version/bin/bike-$version.hex",
+    (version, variant) => s"../BIKE-Additional/BIKE-$version/bin${if (variant.isEmpty) "" else s"-$variant"}/bike-$version.hex",
     List("1", "3")
   ),
   PredefinedTask(
