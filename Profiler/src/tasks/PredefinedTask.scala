@@ -56,10 +56,12 @@ final case class PredefinedTask(
       case _ => ???
     }
 
+    val buildTarget = if (build) Some(name) else None
+
     // Generate tasks
     if (config.variants.isEmpty)
       for (version <- selectedVersions)
-        yield ProfilingTask(s"$name $version", version, hexFile(version, ""), Some(name), None, config)
+        yield ProfilingTask(s"$name $version", hexFile(version, ""), version, buildTarget, None, config)
     else
       for (version <- selectedVersions; variant <- config.variants)
         yield {
@@ -67,7 +69,7 @@ final case class PredefinedTask(
             s"$name $version $variant",
             hexFile(version, variant.toString),
             version,
-            Some(name),
+            buildTarget,
             Some(variant),
             config
           )

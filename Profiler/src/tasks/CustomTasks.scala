@@ -21,7 +21,7 @@ def customTasks: List[PredefinedTask] = List(
   ),
   PredefinedTask(
     "test",
-    "/home/lab/F/EigeneDateien/Studium/5_SS_21/MA/Code/TrinityCore/RegressionTests/ExtendedRegTest/build/ExtendedRegTest.hex",
-    true
+    "/home/lab/F/EigeneDateien/Studium/5_SS_21/MA/Code/TrinityCore/RegressionTests/UnitTest/build/UnitTest.hex",
+    false
   )
 )

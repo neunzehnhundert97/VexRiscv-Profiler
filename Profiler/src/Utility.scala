@@ -6,12 +6,16 @@ import java.io.IOException
 import better.files.File
 
 import zio.*
-import zio.console.{Console => ZConsole, putStrLn}
+import zio.console.{Console => ZConsole, putStrLn, putStr}
 import zio.blocking.{effectBlocking, blocking, Blocking}
 
 /** Prints a blue status message to stdout. */
 def reportStatus(msg: String, reporter: String = "Profiler") =
   putStrLn(Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
+
+/** Prints a blue status message to stdout. */
+def reportUpdatedStatus(msg: String, reporter: String = "Profiler") =
+  putStr("\r\u001b[K" + Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
 
 /** Prints a red error message to stdout. */
 def reportError(msg: String, reporter: String = "Profiler") =
@@ -44,5 +48,9 @@ def runForFileOutput(logFile: os.Path, mergeErrors: Boolean = false)(args: os.Sh
   effectBlocking {
     os.proc(args*).call(stdout = logFile, mergeErrIntoOut = mergeErrors)
   }.discard
+
+enum TaskState {
+  case Initial, Building, Profiling, Analysing, Finished
+}
 
 type ->[+A, +B] = Tuple2[A, B]

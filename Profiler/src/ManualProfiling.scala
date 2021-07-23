@@ -6,13 +6,15 @@ import scala.compiletime.codeOf
 import better.files._
 
 import zio.*
-import zio.console.Console
-import zio.clock.Clock
+import zio.console.*
+import zio.clock.*
 import zio.blocking.*
+import zio.duration.*
 
 import upickle.default.write
 
 import tasks.PredefinedTask
+import java.util.concurrent.TimeUnit
 
 object ManualProfiling {
 
@@ -53,15 +55,58 @@ object ManualProfiling {
     // Create predefined tasks
     val predefinedTasks = config.predefinedTasks.flatMap(_.generateTasks(config))
 
-    // Excute in parallel
+    println(predefinedTasks.map(t => t -> t.file))
+
+    val policy = Schedule
+      .spaced(1000.milliseconds)
+
     val tasks = manualTasks ::: predefinedTasks
-    if (tasks.nonEmpty || doBenchmark) {
-      reportStatus(s"Start execution of ${tasks.length} tasks")
-        *> ZIO.when(doAnalysis || doProfile)(ZIO.collectAllParN(12)(tasks.map(t => t.execute(config))).map(_ => ()))
-        *> ZIO.when(doBenchmark)(benchmark(tasks)).catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
-    } else
-      reportStatus("No tasks to execute")
+
+    for {
+      supervisor <- Supervisor.track(true)
+      ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
+      start <- currentTime(TimeUnit.SECONDS)
+      logger <- testMonitor(supervisor, ref, start, tasks.length).schedule(policy).fork.ensuring(for {
+        now <- currentTime(TimeUnit.SECONDS)
+        _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
+      } yield ())
+
+      // Excute in parallel
+      _ <-
+        if (tasks.nonEmpty || doBenchmark) {
+          reportStatus(s"Start execution of ${tasks.length} tasks")
+            *> ZIO.when(doAnalysis || doProfile)(
+              ZIO.collectAllParN(12)(tasks.map(t => t.execute(config, ref))).supervised(supervisor).map(_ => ())
+            )
+            *> ZIO.when(doBenchmark)(benchmark(tasks)).catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
+        } else
+          reportStatus("No tasks to execute")
+      _ <- logger.interrupt
+    } yield ()
   }
+
+  /** */
+  def testMonitor(
+    supervisor: Supervisor[Chunk[Fiber.Runtime[Any, Any]]],
+    ref: FiberRef[String -> TaskState],
+    begin: Long,
+    tasks: Int
+  ) = for {
+    wrappedStates <- supervisor.value.map(_.map(_.getRef(ref)))
+    states <- ZIO.collectAll(wrappedStates)
+    countedStates = states.filter((name, _) => !name.isBlank).foldLeft(Map[TaskState, Int]()) {
+      case (map, (_, state)) =>
+        map.updatedWith(state) {
+          case None    => Some(1)
+          case Some(c) => Some(c + 1)
+        }
+    }
+    fullStates = countedStates.updated(TaskState.Finished, tasks - countedStates.map(_._2).sum)
+    now <- currentTime(TimeUnit.SECONDS)
+    _ <- reportUpdatedStatus(
+      s"${now - begin} seconds elaspsed, Current State: ${fullStates.map((a, b) => s"$a: $b").mkString(", ")}"
+    )
+  } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
   def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
