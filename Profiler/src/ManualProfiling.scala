@@ -55,8 +55,6 @@ object ManualProfiling {
     // Create predefined tasks
     val predefinedTasks = config.predefinedTasks.flatMap(_.generateTasks(config))
 
-    println(predefinedTasks.map(t => t -> t.file))
-
     val policy = Schedule
       .spaced(1000.milliseconds)
 
@@ -66,12 +64,12 @@ object ManualProfiling {
       supervisor <- Supervisor.track(true)
       ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
       start <- currentTime(TimeUnit.SECONDS)
-      logger <- testMonitor(supervisor, ref, start, tasks.length).schedule(policy).fork.ensuring(for {
+      logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(policy).ensuring(for {
         now <- currentTime(TimeUnit.SECONDS)
         _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
-      } yield ())
+      } yield ()).fork
 
-      // Excute in parallel
+      // Execute in parallel
       _ <-
         if (tasks.nonEmpty || doBenchmark) {
           reportStatus(s"Start execution of ${tasks.length} tasks")
@@ -86,7 +84,7 @@ object ManualProfiling {
   }
 
   /** */
-  def testMonitor(
+  def reportFibreStatus(
     supervisor: Supervisor[Chunk[Fiber.Runtime[Any, Any]]],
     ref: FiberRef[String -> TaskState],
     begin: Long,
@@ -103,9 +101,9 @@ object ManualProfiling {
     }
     fullStates = countedStates.updated(TaskState.Finished, tasks - countedStates.map(_._2).sum)
     now <- currentTime(TimeUnit.SECONDS)
-    _ <- reportUpdatedStatus(
+    _ <- ZIO.when(countedStates.map(_._2).sum != 0)(reportUpdatedStatus(
       s"${now - begin} seconds elaspsed, Current State: ${fullStates.map((a, b) => s"$a: $b").mkString(", ")}"
-    )
+    ))
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
