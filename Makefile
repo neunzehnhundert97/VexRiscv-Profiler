@@ -28,22 +28,6 @@ obj_dir/VVexRiscv.cpp: ${VEXRISCV_FILE}
 obj_dir/VVexRiscv: obj_dir/VVexRiscv.cpp
 	$(MAKE)  -j${THREAD_COUNT} -C obj_dir/ -f VVexRiscv.mk VVexRiscv
 
-.PHONY: dummies
-dummies:
-	cd ../dummies/AES-128 && $(MAKE) clean all PROFILE=$(PROFILE) POSTFIX=$(POSTFIX) 
-
-.PHONY: hqc
-hqc:
-	cd ../hqc/hqc-$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
-
-.PHONY: mceliece
-mceliece:
-	cd ../McEliece/mceliece$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
-
-.PHONY: bike
-bike:
-	cd ../BIKE-Additional/BIKE-$(VERSION) && $(MAKE) clean all PROFILE=Y VERBOSE=$(VERBOSE) VARIANT=$(VARIANT)
-
 clean:
 	rm -rf obj_dir
 	rm -f *.debugTrace

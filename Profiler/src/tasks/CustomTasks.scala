@@ -3,25 +3,26 @@ package profiler
 package tasks
 
 /** Define your own tasks in this function. */
-def customTasks: List[PredefinedTask] = List(
-  PredefinedTask(
-    "hqc",
-    (version, variant) => s"../hqc/hqc-$version/bin${if (variant.isEmpty) "" else s"-$variant"}/hqc-$version.hex",
-    List("128", "192", "256")
-  ),
-  PredefinedTask(
-    "mceliece",
-    (version, variant) => s"../McEliece/mceliece$version/bin${if (variant.isEmpty) "" else s"-$variant"}/mceliece$version.hex",
-    List("348864", "460896", "348864f", "460896f")
-  ),
-  PredefinedTask(
-    "bike",
-    (version, variant) => s"../BIKE-Additional/BIKE-$version/bin${if (variant.isEmpty) "" else s"-$variant"}/bike-$version.hex",
-    List("1", "3")
-  ),
-  PredefinedTask(
-    "test",
-    "/home/lab/F/EigeneDateien/Studium/5_SS_21/MA/Code/TrinityCore/RegressionTests/UnitTest/build/UnitTest.hex",
-    false
-  )
-)
+def customTasks: List[PredefinedTask] = Nil
+
+/**
+ * Replace Nil with a list of your own predefined tasks
+ * Tasks come in two variants, single or multiple
+ * 
+ * To just define a task for one executable just do the following
+ * PredefinedTask(
+ *   "name", // This name will be recognized by the command args and will be used for outputs and building (optional)
+ *   "path/to/your/file.hex", // .hex is required and a .elf with the same name also (for symbol table and disassembly),
+ *   false // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ * )
+ * 
+ * If you have multiple target which represent version of the same scheme (e.g AES-128, AES-192, AES-256) and you want to
+ * profile them together, you can do the following
+ * PredefinedTask(
+ *   "name", // Same as above, but will trigger all version. See take, drop, or select for only work some of them
+ *   (version, variant) => s"path/to/$version/and/$variant/of/your/file.elf", // Same as above, but a function
+ *   List("Version1", "Version2"), // List of version, which will be directly inserted in the function above
+ *   false // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ * )
+ * 
+*/
