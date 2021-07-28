@@ -52,7 +52,7 @@ final case class Config(
 
     prefix match {
       case None      => postFixed
-      case Some(pre) => s"$pre-$postFixed"
+      case Some(pre) => s"$pre/$postFixed"
     }
   }
 }
