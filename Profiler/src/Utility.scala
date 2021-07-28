@@ -27,7 +27,7 @@ def reportSuccess(msg: String, reporter: String = "Profiler") =
 
 /** Writes the given string into the given file. Currying for partial application. */
 def writeToFile(fileName: String)(data: String): Task[Unit] =
-  IO.effect(File(fileName).write(data)).discard
+  IO.effect(File(fileName).createFileIfNotExists(true).write(data)).discard
 
 def readFromFile(fileName: String): Task[Iterator[String]] =
   IO.effect(File(fileName).lineIterator)
