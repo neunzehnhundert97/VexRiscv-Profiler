@@ -21,6 +21,8 @@ object ManualProfiling {
   /** Path to objdump for the analyzed elf. */
   val objdump = "riscv32-unknown-elf-objdump"
 
+  val everySecond = Schedule.spaced(1000.milliseconds)
+
   /** Displays the name of a boolean if it is true, else an empty string. */
   inline def literalBoolean(inline cond: Boolean): String =
     if (cond) codeOf(cond).split('.').last else ""
@@ -55,16 +57,13 @@ object ManualProfiling {
     // Create predefined tasks
     val predefinedTasks = config.predefinedTasks.flatMap(_.generateTasks(config))
 
-    val policy = Schedule
-      .spaced(1000.milliseconds)
-
     val tasks = manualTasks ::: predefinedTasks
 
     for {
-      supervisor <- Supervisor.track(true)
       ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
+      supervisor <- Supervisor.track(true)
       start <- currentTime(TimeUnit.SECONDS)
-      logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(policy).ensuring(for {
+      logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(everySecond).ensuring(for {
         now <- currentTime(TimeUnit.SECONDS)
         _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
       } yield ()).fork
@@ -76,30 +75,34 @@ object ManualProfiling {
             *> ZIO.when(doAnalysis || doProfile)(
               ZIO.collectAllParN(12)(tasks.map(t => t.execute(config, ref))).supervised(supervisor).map(_ => ())
             )
-            *> ZIO.when(doBenchmark)(benchmark(tasks)).catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
+            *> ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
+              reportError(s"During benchmark, an error occurred: $e")
+            )
         } else
           reportStatus("No tasks to execute")
       _ <- logger.interrupt
     } yield ()
   }
 
-  /** */
+  /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
     supervisor: Supervisor[Chunk[Fiber.Runtime[Any, Any]]],
     ref: FiberRef[String -> TaskState],
     begin: Long,
     tasks: Int
   ) = for {
-    wrappedStates <- supervisor.value.map(_.map(_.getRef(ref)))
+    fibres <- supervisor.value
+    wrappedStates = fibres.map(_.getRef(ref))
     states <- ZIO.collectAll(wrappedStates)
-    countedStates = states.filter((name, _) => !name.isBlank).foldLeft(Map[TaskState, Int]()) {
+    countedStates = states.filter(!_._1.isEmpty).foldLeft(Map[TaskState, Int]()) {
       case (map, (_, state)) =>
         map.updatedWith(state) {
           case None    => Some(1)
           case Some(c) => Some(c + 1)
         }
     }
-    fullStates = countedStates.updated(TaskState.Finished, tasks - countedStates.map(_._2).sum)
+    finished = tasks - countedStates.map(_._2).sum
+    fullStates = if (finished > 0) countedStates.updated(TaskState.Finished, finished) else countedStates
     now <- currentTime(TimeUnit.SECONDS)
     _ <- ZIO.when(countedStates.map(_._2).sum != 0)(reportUpdatedStatus(
       s"${now - begin} seconds elaspsed, Current State: ${fullStates.map((a, b) => s"$a: $b").mkString(", ")}"
@@ -136,28 +139,34 @@ object ManualProfiling {
     }
   } yield ()
 
-  def benchmark(tasks: List[ProfilingTask]) = {
-    // Read data from files
-    val files = tasks.map(t => t -> t.dataFile)
-    val dataIterator = ZIO.collectAll(files.map((name, file) => readFromFile(file).map(res => name -> res)))
+  /** Generate a comparison of the absolute execution time of the measured task. */
+  def benchmark(tasks: List[ProfilingTask], config: Config): Task[Unit] = {
+    // Use grep to find the line which prints the cycles
+    val grepedData =
+      ZIO.collectAllPar(for (task <- tasks)
+        yield IO {
+          val head = os.proc("tail", "-n", 10, task.dataFile).spawn()
+          val grep = os.proc("grep", "Had simulate").spawn(stdin = head.stdout)
+          grep.waitFor()
+          task -> grep.stdout.text
+        })
 
-    // TODO Use grep
     val timeRegex = raw"Had simulate (\d+) clock cycles".r
 
-    // Match the last line where the overall execution time is print
-    dataIterator.map(_.map((name, output) =>
-      name -> output.map(line => timeRegex.findFirstMatchIn(line))
-        .collect { case Some(m) => m.group(1).toInt }.toList
+    // Extract the clock cycles
+    grepedData.map(_.map((name, output) =>
+      name -> timeRegex.findFirstMatchIn(output).get.group(1).toInt
     )).map { data =>
+
       // Group data: Line / Variant => Column / Version => Data
       val groupedByVariant = data
         .groupBy(_._1.variant.get)
-        .map((key, value) => key -> value.map((t, data) => t.version -> data.head).sortBy(_._1)).toList.sortBy(_._1)
+        .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1)).toList.sortBy(_._1)
 
       // Group data: Version => Variant => Data
       val groupedByVersion = data
         .groupBy(_._1.version)
-        .map((key, value) => key -> value.map((t, data) => t.variant.get -> data.head).sortBy(_._1)).toList.sortBy(_._1)
+        .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy(_._1)).toList.sortBy(_._1)
 
       // Build report
       val numVersions = groupedByVersion.length
@@ -183,7 +192,7 @@ object ManualProfiling {
         }
 
       resultTable + "\n\n" + compareTables.mkString("\n")
-    } >>= writeToFile("results/Benchmark.txt")
+    } >>= writeToFile(s"results/${config.prepostfixed("Benchmark.txt")}")
   }
 
   /** Converts the symbol table into JSON and writes it in the data folder. */
