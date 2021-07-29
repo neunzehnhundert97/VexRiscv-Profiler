@@ -88,7 +88,21 @@ Currently, the profiler supports three modes of operation.
 * a low level analysis that targets a single function and its decedents and record cycle counts for each individual instruction
 * a benchmark which records execution times of multiple variants of the same program and creates a report
 
-The command line arguments are parsed out of order, unknown ones are ignored.
+The command line arguments are parsed out of order, unknown ones are ignored. For the profiler to do anything, one of the three
+*profile*, *analyse*, and *benchmark* must be supplied. Targets for these operations are either specified by *input=path1,path2,...*
+or by defining own tasks in **Profiler/src/tasks/CustomTasks.scala** (explanation can be found in said file).
+
+Example usages:
+
+Profile MyFile.hex and analyze it:
+```
+mill Profiler.run input=MyFile.hex profile analyse
+```
+
+Perform a instruction level analysis:
+```
+mill Profiler.run input=MyFile.hex func=MyFunc analyze profile input=MyFile.hex
+```
 
 ## Command overview
 
