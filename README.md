@@ -3,13 +3,20 @@ This profiler is part of my masterthesis "Development and Implementation of a Ha
 
 ## Dependencies
 
-The tool itself is written in Scala3 and needs only a java runtime and the build tool [mill](https://github.com/com-lihaoyi/mill) 
-which will take care of everything else in this direction. In order to profile your program, you additionally need a C++ compiler 
-(preferably g++) and verilator.
+Mandatory dependecies, which must be avaiable on the path. The program won't build or run successful without them.
 
-In order to resolve symbols, the **riscv32-unknown-elf-objdump** must be avaiable on the path.
+* [Java](https://adoptopenjdk.net/) JDK and JRE, at least Java 11
+* [Mill](https://com-lihaoyi.github.io/mill/mill/Intro_to_Mill.html), a Scala build tool
+* C++ compiler (preferably g++)
+* Make
+* [Verilator](https://verilator.org/guide/latest/install.html)
+* [riscv32-unknown-elf-objdump](https://github.com/riscv/riscv-gnu-toolchain)
 
-## Usage
+Optional dependecies, which could be avaiable on the path.
+
+* [graphviz](https://graphviz.org/) (dot) to generate images
+
+## Preparation of your executables
 
 The profiler generates raw traces by watching changes in the **mscratch** register, which must be accessable in the simulation. 
 The easiest way to achive this is using the CSRPlugin shipped with this repo, which is similar to the original plugin with the mscratch 
@@ -38,7 +45,7 @@ void __attribute__((always_inline)) __attribute__((no_instrument_function)) __cy
 }
 ```
 
-Manual access is also possible. The profiler automatically resolves addresses to their corresponding symbols, so one should use 
+Manual access is also possible. The profiler automatically resolves addresses to their corresponding symbols, so one has to use 
 values which are contained in the symbol table. For instance:
 
 ```
@@ -52,11 +59,38 @@ measurement2:
     csrwi mscratch, 0x1
 ```
 
+## Building the profiler
+
+Navigate into the project's root directory and issue the following command:
+
+```
+mill Profiler.assembly
+```
+
+A .jar will be created at ./Profiling/out/Profiler/assembly/dest/out.jar. You can call it by
+
+```
+java -jar Profiler.jar [Commands]
+```
+
+Instead of building the .jar, you can also use the build tool to run the project. This is prefered, if you plan an modifying the code often.
+Do this by typing and executing
+
+```
+mill Profiler.run [Commands]
+```
+
+## Usage
+
 Currently, the profiler supports three modes of operation.
 
 * a high level measurement which records execution time for every function and can generate a colorized callgraph
 * a low level analysis that targets a single function and its decedents and record cycle counts for each individual instruction
 * a benchmark which records execution times of multiple variants of the same program and creates a report
+
+The command line arguments are parsed out of order, unknown ones are ignored.
+
+## Command overview
 
 ```
 Help for VexRiscv Profiler
