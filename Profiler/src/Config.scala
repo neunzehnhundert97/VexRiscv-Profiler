@@ -66,7 +66,7 @@ object Config {
   /** Create configuration from command line arguments. The order does not matter. */
   def apply(args: Seq[String]): Config = {
     // Boolean arguments
-    val doAnalysis = args.contains("analyse")
+    val doAnalysis = args.contains("analyse") || args.contains("analyze")
     val doProfile = args.contains("profile")
     val doBenchmark = args.contains("benchmark")
     val visualize = args.contains("graph") || args.contains("visualize")
