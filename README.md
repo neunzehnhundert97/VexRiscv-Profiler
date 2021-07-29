@@ -16,11 +16,11 @@ Optional dependecies, which could be avaiable on the path.
 
 * [graphviz](https://graphviz.org/) (dot) to generate images
 
-## Preparation of your executables
+## Preparation
 
 The profiler generates raw traces by watching changes in the **mscratch** register, which must be accessable in the simulation. 
-The easiest way to achive this is using the CSRPlugin shipped with this repo, which is similar to the original plugin with the mscratch 
-register made visible.
+The easiest way to achive this is customizing the CSR plugin of your current VexRiscv configuration. Simply copy the plugin, change
+packages etc., find the declaration of mscratch and append *.addTag(Verilator.public)* to its definition.
 
 To insert meaningful values in this register, the -finstrument-functions flag for gcc can be used, which inserts function calls 
 at the start and end of every function.
