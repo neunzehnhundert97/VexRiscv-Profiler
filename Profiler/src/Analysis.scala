@@ -345,9 +345,10 @@ object Analysis {
         val (entry :: rest) = stack
         // Get the nodes that are below the current function and the rest
         val (lower, higher) = queue.span(_.depth > depth)
+        // Assemble new node
+        val node = CallNode(symbols.getOrElse(addr, addr), depth, ctr - entry, lower)
         (
-          // Build new node and push it onto the stack
-          CallNode(symbols.getOrElse(addr, addr), depth, entry, ctr, lower) :: higher,
+          node :: higher,
           rest,
           depth - 1
         )
