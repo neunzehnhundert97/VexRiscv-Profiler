@@ -146,16 +146,16 @@ object ManualProfiling {
       ZIO.collectAllPar(for (task <- tasks)
         yield IO {
           val head = os.proc("tail", "-n", 10, task.dataFile).spawn()
-          val grep = os.proc("grep", "Had simulate").spawn(stdin = head.stdout)
+          val grep = os.proc("grep", "SUCCESS").spawn(stdin = head.stdout)
           grep.waitFor()
           task -> grep.stdout.text
         })
 
-    val timeRegex = raw"Had simulate (\d+) clock cycles".r
+    val timeRegex = raw"SUCCESS, (\d+) clock cycles ".r
 
     // Extract the clock cycles
     grepedData.map(_.map((name, output) =>
-      name -> timeRegex.findFirstMatchIn(output).get.group(1).toInt
+      name -> timeRegex.findFirstMatchIn(output).map(_.group(1).toInt).getOrElse(-1)
     )).map { data =>
 
       // Group data: Line / Variant => Column / Version => Data

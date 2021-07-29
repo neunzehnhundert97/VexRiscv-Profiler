@@ -2299,7 +2299,7 @@ public:
 		catch (const success e)
 		{
 			staticMutex.lock();
-			cout << "SUCCESS " << name << endl;
+			//cout << "SUCCESS " << name << endl;
 			successCounter++;
 			cycles += instanceCycles;
 			staticMutex.unlock();
@@ -2308,9 +2308,9 @@ public:
 		{
 			staticMutex.lock();
 
-			cout << "FAIL " << name << " at PC=" << hex << setw(8) << top->VexRiscv->lastStagePc << dec; //<<  " seed : " << seed <<
+			/* cout << "FAIL " << name << " at PC=" << hex << setw(8) << top->VexRiscv->lastStagePc << dec; //<<  " seed : " << seed <<
 			cout << " time=" << i;
-			cout << endl;
+			cout << endl; */
 
 			cycles += instanceCycles;
 			staticMutex.unlock();
@@ -3503,15 +3503,10 @@ int main(int argc, char **argv, char **env)
 		->run(50e10);
 
 	uint64_t duration = timer_end(startedAt);
-	cout << endl
-		 << "****************************************************************" << endl;
-	cout << "Had simulate " << Workspace::cycles << " clock cycles in " << duration * 1e-9 << " s (" << Workspace::cycles / (duration * 1e-6) << " Khz)" << endl;
 	if (Workspace::successCounter == Workspace::testsCounter)
-		cout << "REGRESSION SUCCESS " << Workspace::successCounter << "/" << Workspace::testsCounter << endl;
+		printf("SUCCESS, %lu clock cycles in %lu s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 	else
-		cout << "REGRESSION FAILURE " << Workspace::testsCounter - Workspace::successCounter << "/" << Workspace::testsCounter << endl;
-	cout << "****************************************************************" << endl
-		 << endl;
+		printf("SUCCESS, %lu clock cycles in %lu s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 
 	exit(0);
 }
