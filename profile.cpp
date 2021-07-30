@@ -3504,9 +3504,9 @@ int main(int argc, char **argv, char **env)
 
 	uint64_t duration = timer_end(startedAt);
 	if (Workspace::successCounter == Workspace::testsCounter)
-		printf("SUCCESS, %lu clock cycles in %lu s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
+		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 	else
-		printf("SUCCESS, %lu clock cycles in %lu s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
+		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 
 	exit(0);
 }
