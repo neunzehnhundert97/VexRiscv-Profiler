@@ -18,12 +18,13 @@ ADDCFLAGS += -CFLAGS -Wno-unused-result
 
 ADDCFLAGS += -CFLAGS -DTHREAD_COUNT=${THREAD_COUNT}
 ADDCFLAGS += -CFLAGS -DSTALL=1
+ADDCFLAGS += -CFLAGS -O3
 
 all: obj_dir/VVexRiscv
 
 obj_dir/VVexRiscv.cpp: ${VEXRISCV_FILE}
 	cp ${VEXRISCV_FILE}*.bin . | true
-	verilator -cc  ${VEXRISCV_FILE}  -O3 -CFLAGS -std=c++11 -LDFLAGS -pthread  ${ADDCFLAGS}  --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH --x-assign unique --exe profile.cpp
+	verilator -cc  ${VEXRISCV_FILE} -O3 -CFLAGS -std=c++11 -LDFLAGS -pthread ${ADDCFLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH  --exe profile.cpp --x-assign unique
 
 obj_dir/VVexRiscv: obj_dir/VVexRiscv.cpp
 	$(MAKE)  -j${THREAD_COUNT} -C obj_dir/ -f VVexRiscv.mk VVexRiscv
