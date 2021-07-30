@@ -3,7 +3,7 @@ package profiler
 
 import java.util.concurrent.TimeUnit
 
-import zio.{IO, UIO, ZIO, URIO, clock, FiberRef}
+import zio.{IO, UIO, ZIO, URIO, clock, FiberRef, Semaphore}
 import zio.console.Console
 import clock.Clock
 import zio.blocking.Blocking
@@ -24,9 +24,9 @@ final case class ProfilingTask(
   def resultFile = s"results/$fileName"
 
   /** Perform the wanted actions. */
-  def execute(config: Config, ref: FiberRef[String -> TaskState]): URIO[Console & Blocking & Clock, Unit] = {
+  def execute(config: Config, ref: FiberRef[String -> TaskState], sem: Semaphore): URIO[Console & Blocking & Clock, Unit] = {
     // Run profiling and analyzis and report occurring errors
-    (build(config, ref) *> profile(fileName, config, ref) *> analyze(fileName, config, ref) *> ref.set(
+    (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref) *> ref.set(
       name -> TaskState.Finished
     ))
       .catchAll(msg => reportError(msg, name))
@@ -62,16 +62,11 @@ final case class ProfilingTask(
   def profile(
     fileName: String,
     config: Config,
-    ref: FiberRef[String -> TaskState]
+    ref: FiberRef[String -> TaskState],
+    sem: Semaphore
   ): ZIO[Console & Blocking & Clock, String, Unit] =
     ZIO.when(config.doProfile)(
-      for {
-        _ <- ref.set(name -> TaskState.Profiling)
-        start <- clock.currentTime(TimeUnit.SECONDS)
-        _ <- ManualProfiling.profile(file, dataFile, config)
-        end <- clock.currentTime(TimeUnit.SECONDS)
-        // _ <- reportSuccess(s"Done profiling in ${end - start} seconds", name)
-      } yield ()
+      sem.withPermit(ref.set(name -> TaskState.Profiling) *> ManualProfiling.profile(file, dataFile, config))
     )
 
   /** Analyze the gathered data. */
@@ -81,13 +76,7 @@ final case class ProfilingTask(
     ref: FiberRef[String -> TaskState]
   ): ZIO[Console & Clock & Blocking, String, Unit] =
     ZIO.when(config.doAnalysis)(
-      for {
-        _ <- ref.set(name -> TaskState.Analysing)
-        start <- clock.currentTime(TimeUnit.SECONDS)
-        _ <- Analysis(dataFile, elfFile, resultFile, config)
-        end <- clock.currentTime(TimeUnit.SECONDS)
-        // _ <- reportSuccess(s"Done analyzing in ${end - start} seconds", name)
-      } yield ()
+      ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
     )
 
   override def toString: String =

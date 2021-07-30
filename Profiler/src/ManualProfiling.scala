@@ -1,6 +1,9 @@
 package masterthesis
 package profiler
 
+import java.util.concurrent.TimeUnit
+import java.lang.{Runtime => JRuntime}
+
 import scala.compiletime.codeOf
 
 import better.files._
@@ -14,7 +17,6 @@ import zio.duration.*
 import upickle.default.write
 
 import tasks.PredefinedTask
-import java.util.concurrent.TimeUnit
 
 object ManualProfiling {
 
@@ -67,17 +69,16 @@ object ManualProfiling {
         now <- currentTime(TimeUnit.SECONDS)
         _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
       } yield ()).fork
+      sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
 
       // Execute in parallel
       _ <-
         if (tasks.nonEmpty || doBenchmark) {
-          reportStatus(s"Start execution of ${tasks.length} tasks")
-            *> ZIO.when(doAnalysis || doProfile)(
-              ZIO.collectAllParN(12)(tasks.map(t => t.execute(config, ref))).supervised(supervisor).map(_ => ())
-            )
-            *> ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
-              reportError(s"During benchmark, an error occurred: $e")
-            )
+          reportStatus(s"Start execution of ${tasks.length} tasks") *> ZIO.when(doAnalysis || doProfile)(
+            ZIO.collectAllPar(tasks.map(t => t.execute(config, ref, sem))).supervised(supervisor).discard
+          ) *> ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
+            reportError(s"During benchmark, an error occurred: $e")
+          )
         } else
           reportStatus("No tasks to execute")
       _ <- logger.interrupt

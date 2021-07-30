@@ -35,8 +35,3 @@ extension [R, E, A](zio: ZIO[R, E, A]) {
   def >>[R2, E2, A2, D](next: ZIO[R2, E2, A2]) =
     zio.flatMap(_ => next)
 }
-
-extension [A, B](func: A => B) {
-  def andThenDo[C](other: C) =
-    func andThen (_ => other)
-}
