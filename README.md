@@ -133,3 +133,14 @@ Options can be supplied in arbitrary order and don't follow the usual standards
   select=[n[,n..]]      : Selects the given indices from each predefined task's list, not compatible with take or drop
   postfix=[string]      : Appends the given string to every produced output file
 ```
+
+# Custom instruction decoding
+
+If you have added new instructions to VexRiscv, the analysis might get harded as the dissassembly cannot decode those new instructions.
+The profiler can perform this task for you, if you supply a file named *instructions_s.csv* in the top level directory. Below is
+an example to get you startet:
+
+```
+Mnemonic;Pattern;Type
+ReadExtendedLower;0000000----------000-----0001011;R
+```
