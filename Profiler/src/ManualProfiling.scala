@@ -152,11 +152,11 @@ object ManualProfiling {
           task -> grep.stdout.text
         })
 
-    val timeRegex = raw"SUCCESS, (\d+) clock cycles ".r
+    val timeRegex = raw"^SUCCESS, (\d+) clock cycles ".r
 
     // Extract the clock cycles
     grepedData.map(_.map((name, output) =>
-      name -> timeRegex.findFirstMatchIn(output).map(_.group(1).toInt).getOrElse(-1)
+      name -> timeRegex.findFirstMatchIn(output).map(_.group(1).toLong(16)).getOrElse(-1L)
     )).map { data =>
 
       // Group data: Line / Variant => Column / Version => Data
@@ -172,10 +172,10 @@ object ManualProfiling {
       // Build report
       val numVersions = groupedByVersion.length
       val numVariants = groupedByVariant.length
-      val sep = "+-----" + (("+" + "-" * 12) * numVersions) + "+\n"
-      val header = "| Var | " + groupedByVersion.map((v, _) => f"$v%10s").mkString(" | ") + " |\n"
+      val sep = "+-----" + (("+" + "-" * 15) * numVersions) + "+\n"
+      val header = "| Var | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
       val table = (for ((variant, data) <- groupedByVariant)
-        yield f"| $variant%3s | ${data.map(d => f"${d._2}%10s").mkString(" | ")}" + " |").mkString("", "\n", "\n")
+        yield f"| $variant%3s | ${data.map(d => f"${d._2}%13s").mkString(" | ")}" + " |").mkString("", "\n", "\n")
 
       // Table with all measurments
       val resultTable = sep + header + sep + table + sep
