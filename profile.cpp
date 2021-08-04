@@ -2067,7 +2067,10 @@ public:
 	virtual void postReset() {}
 	virtual void checks() {}
 	virtual void pass() { throw success(); }
-	virtual void fail() { throw std::exception(); }
+	virtual void fail()
+	{
+		throw std::exception();
+	}
 	virtual void fillSimELements();
 	void dump(uint64_t i)
 	{
@@ -2299,7 +2302,6 @@ public:
 		catch (const success e)
 		{
 			staticMutex.lock();
-			//cout << "SUCCESS " << name << endl;
 			successCounter++;
 			cycles += instanceCycles;
 			staticMutex.unlock();
@@ -2307,11 +2309,6 @@ public:
 		catch (const std::exception &e)
 		{
 			staticMutex.lock();
-
-			/* cout << "FAIL " << name << " at PC=" << hex << setw(8) << top->VexRiscv->lastStagePc << dec; //<<  " seed : " << seed <<
-			cout << " time=" << i;
-			cout << endl; */
-
 			cycles += instanceCycles;
 			staticMutex.unlock();
 			failed = true;
@@ -3506,7 +3503,7 @@ int main(int argc, char **argv, char **env)
 	if (Workspace::successCounter == Workspace::testsCounter)
 		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 	else
-		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
+		printf("FAILURE, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 
 	exit(0);
 }
