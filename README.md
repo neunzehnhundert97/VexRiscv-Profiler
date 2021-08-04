@@ -104,6 +104,11 @@ Perform a instruction level analysis:
 mill Profiler.run input=MyFile.hex func=MyFunc analyze profile input=MyFile.hex
 ```
 
+Benchmark different variants of the same target
+```
+mill Profiler.run myAlgorithm profile benchmark variants=0,1,2,3
+```
+
 ## Command overview
 
 ```
