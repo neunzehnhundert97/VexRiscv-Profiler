@@ -34,7 +34,8 @@ def writeToFile(fileName: String)(data: String): Task[Unit] =
 def readFromFile(fileName: String): Task[Iterator[String]] =
   IO.effect(File(fileName).lineIterator)
 
-def runForReturn(args: String*): ZIO[Blocking & ZConsole, CommandError, (Int, String, String)] = for {
+/** Runs the given command and returns a tuple of (exit code, stdout, stderr). */
+def runForReturn(args: String*): ZIO[Blocking, CommandError, (Int, String, String)] = for {
   proc <- Command(args.head, args.tail.filter(!_.isBlank)*).run
   code <- proc.exitCode
   stdout <- proc.stdout.string

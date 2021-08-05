@@ -14,6 +14,8 @@ import zio.clock.*
 import zio.blocking.*
 import zio.duration.*
 
+import zio.process.Command
+
 import upickle.default.write
 
 import tasks.PredefinedTask
@@ -62,34 +64,29 @@ object ManualProfiling {
     val tasks = manualTasks ::: predefinedTasks
 
     for {
-      ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
-      supervisor <- Supervisor.track(true)
-      start <- currentTime(TimeUnit.SECONDS)
-      logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(everySecond).ensuring(for {
-        now <- currentTime(TimeUnit.SECONDS)
-        _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
-      } yield ()).fork
-      sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
-
       // Execute in parallel
-      results <-
-        if (tasks.nonEmpty || doBenchmark) {
-          for {
-            _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
-            res <- ZIO.when(doAnalysis || doProfile)(
-              ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor).flatMap { (errors, successes) =>
-                ZIO.collectAll(errors.map(e => reportError(e)))
-              }
-            )
-            _ <- ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
-              reportError(s"During benchmark, an error occurred: $e")
-            )
-          } yield ()
-        } else
-          reportStatus("No tasks to execute")
-      _ <- logger.interrupt
+      _ <- ZIO.when(doAnalysis || doProfile)(executeTasks(tasks, config))
+      _ <- ZIO.when(doBenchmark)(benchmark(tasks, config))
+        .catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
+      _ <- ZIO.when(!doAnalysis && !doProfile && !doBenchmark)(reportStatus("No tasks to execute"))
     } yield ()
   }
+
+  def executeTasks(tasks: List[ProfilingTask], config: Config): URIO[Console & Blocking & Clock, Unit] = for {
+    ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
+    supervisor <- Supervisor.track(true)
+    start <- currentTime(TimeUnit.SECONDS)
+    logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(everySecond).ensuring(for {
+      now <- currentTime(TimeUnit.SECONDS)
+      _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
+    } yield ()).fork
+    sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
+    _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
+    res <- ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor)
+    (errors, success) = res
+    _ <- ZIO.collectAll(errors.map(e => reportError(e)))
+    _ <- logger.interrupt
+  } yield ()
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
@@ -117,7 +114,7 @@ object ManualProfiling {
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking & Console, String, Unit] = for {
+  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
     // Verify existence of file
     _ <- IO.when(!hexFile.endsWith("hex"))(IO.fail(s"The given file '$hexFile' has no .hex extension."))
     _ <- IO.effect(File(hexFile).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$hexFile' does not exist."))
@@ -147,16 +144,13 @@ object ManualProfiling {
   } yield ()
 
   /** Generate a comparison of the absolute execution time of the measured task. */
-  def benchmark(tasks: List[ProfilingTask], config: Config): Task[Unit] = {
+  def benchmark(tasks: List[ProfilingTask], config: Config) = {
     // Use grep to find the line which prints the cycles
     val grepedData =
-      ZIO.collectAllPar(for (task <- tasks)
-        yield IO {
-          val head = os.proc("tail", "-n", 10, task.dataFile).spawn()
-          val grep = os.proc("grep", "SUCCESS").spawn(stdin = head.stdout)
-          grep.waitFor()
-          task -> grep.stdout.text
-        })
+      ZIO.collectAllPar(
+        for (task <- tasks)
+          yield (Command("tail", "-n", "5", task.dataFile) | Command("grep", "SUCCESS")).string.map(task -> _)
+      )
 
     val timeRegex = raw"^SUCCESS, (\d+) clock cycles ".r
 
@@ -213,7 +207,7 @@ object ManualProfiling {
   /** Creates the symbol table of a given elf and return two mappings from addresses to symbols, one with longs and one with
     * strings.
     */
-  def makeSymbolTable(elf: String): ZIO[Blocking & Console, String, Map[String, String]] =
+  def makeSymbolTable(elf: String): ZIO[Blocking, String, Map[String, String]] =
     for {
       // Verify existence of file
       _ <- IO.effect(File(elf).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$elf' does not exist."))

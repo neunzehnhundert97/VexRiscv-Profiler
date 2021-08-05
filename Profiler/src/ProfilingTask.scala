@@ -4,8 +4,6 @@ package profiler
 import java.util.concurrent.TimeUnit
 
 import zio.{IO, UIO, ZIO, URIO, clock, FiberRef, Semaphore}
-import zio.console.Console
-import clock.Clock
 import zio.blocking.Blocking
 
 /** Class to handle the profiling tasks at one place */
@@ -29,10 +27,11 @@ final case class ProfilingTask(
     config: Config,
     ref: FiberRef[String -> TaskState],
     sem: Semaphore
-  ): ZIO[Console & Blocking & Clock, String, Unit] = {
+  ): ZIO[Blocking, String, Unit] = {
     // Run profiling and analyzis and report occurring errors
-    (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref))
+    val a = (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref))
       .ensuring(clean(config).ignore)
+    a
   }
 
   /** Build the exeutable. */
@@ -42,7 +41,6 @@ final case class ProfilingTask(
       ZIO.when(config.doProfile) {
         for {
           _ <- ref.set(name -> TaskState.Building)
-          start <- clock.currentTime(TimeUnit.SECONDS)
           r <- runForReturn(
             "make",
             target,
@@ -52,7 +50,6 @@ final case class ProfilingTask(
           ).mapError(e => s"The profiler could not be build: $e")
           (code, _, error) = r
           _ <- ZIO.when(code != 0)(ZIO.fail(s"The profiler could not be build: $error"))
-          end <- clock.currentTime(TimeUnit.SECONDS)
         } yield ()
       }
     case None =>
@@ -65,7 +62,7 @@ final case class ProfilingTask(
     config: Config,
     ref: FiberRef[String -> TaskState],
     sem: Semaphore
-  ): ZIO[Console & Blocking & Clock, String, Unit] =
+  ): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
       sem.withPermit(ref.set(name -> TaskState.Profiling) *> ManualProfiling.profile(file, dataFile, config))
     )
@@ -81,8 +78,6 @@ final case class ProfilingTask(
             target,
             s"VERSION=$version",
             config.profilerMakeFlags.mkString(" "),
-            // Usage of list to let a empty result vanish
-            // Empyt strings cause make to fail
             variant.map(v => s"VARIANT=$v").getOrElse("")
           ).mapError(e => s"The profiler could not be build: $e")
         } yield ()
@@ -96,7 +91,7 @@ final case class ProfilingTask(
     fileName: String,
     config: Config,
     ref: FiberRef[String -> TaskState]
-  ): ZIO[Console & Clock & Blocking, String, Unit] =
+  ): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doAnalysis)(
       ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
     )
