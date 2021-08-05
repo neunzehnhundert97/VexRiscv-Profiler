@@ -42,8 +42,8 @@ object ManualProfiling {
       // Invoke makefile to build profiler and request additional targets
       for {
         _ <- reportStatus("Building verilator simulation")
-        r <- runForReturn("make", "all", config.profilerMakeFlags)
-        ret <- ZIO.when(r.exitCode != 0)(ZIO.fail(s"The profiler could not be build: ${r.out.text}"))
+        r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
+          .mapError(e => s"The profiler could not be build: $e")
       } yield ()
     }
 
@@ -72,13 +72,19 @@ object ManualProfiling {
       sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
 
       // Execute in parallel
-      _ <-
+      results <-
         if (tasks.nonEmpty || doBenchmark) {
-          reportStatus(s"Start execution of ${tasks.length} tasks") *> ZIO.when(doAnalysis || doProfile)(
-            ZIO.collectAllPar(tasks.map(t => t.execute(config, ref, sem))).supervised(supervisor).discard
-          ) *> ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
-            reportError(s"During benchmark, an error occurred: $e")
-          )
+          for {
+            _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
+            res <- ZIO.when(doAnalysis || doProfile)(
+              ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor).flatMap { (errors, successes) =>
+                ZIO.collectAll(errors.map(e => reportError(e)))
+              }
+            )
+            _ <- ZIO.when(doBenchmark)(benchmark(tasks, config)).catchAll(e =>
+              reportError(s"During benchmark, an error occurred: $e")
+            )
+          } yield ()
         } else
           reportStatus("No tasks to execute")
       _ <- logger.interrupt
@@ -111,7 +117,7 @@ object ManualProfiling {
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
+  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking & Console, String, Unit] = for {
     // Verify existence of file
     _ <- IO.when(!hexFile.endsWith("hex"))(IO.fail(s"The given file '$hexFile' has no .hex extension."))
     _ <- IO.effect(File(hexFile).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$hexFile' does not exist."))
@@ -121,20 +127,20 @@ object ManualProfiling {
     _ <- config.debuggedFunction.match {
       case None =>
         // Call profiler
-        runForFileOutput(os.pwd / os.RelPath(dataFile))("./obj_dir/VVexRiscv", hexFile, config.bootAt, 1)
+        runForFileOutput(dataFile)("./obj_dir/VVexRiscv", hexFile, config.bootAt, "1")
           .mapError(_ => "The profiler exited with a non zero exit value")
       case Some(func) =>
         symbolTable.find(_._2 == func) match {
           case None               => ZIO.fail(s"The given symbol '$func' could not be found in the symbol table.")
           case Some(address -> _) =>
             // Call profiler
-            runForFileOutput(os.pwd / os.RelPath(dataFile))(
+            runForFileOutput(dataFile)(
               "./obj_dir/VVexRiscv",
               hexFile,
               config.bootAt,
-              2,
+              "2",
               address,
-              config.desiredCalls
+              config.desiredCalls.toString
             ).mapError(_ => "The profiler exited with a non zero exit value")
         }
     }
@@ -175,7 +181,8 @@ object ManualProfiling {
       val sep = "+-----" + (("+" + "-" * 15) * numVersions) + "+\n"
       val header = "| Var | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
       val table = (for ((variant, data) <- groupedByVariant)
-        yield f"| $variant%3s | ${data.map(d => f"${d._2}%13s").mkString(" | ")}" + " |").mkString("", "\n", "\n")
+        yield f"| $variant%3s | ${data.map(d => if (d._2 == -1) f"      -      " else f"${d._2}%13s").mkString(" | ")}" + " |")
+        .mkString("", "\n", "\n")
 
       // Table with all measurments
       val resultTable = sep + header + sep + table + sep
@@ -186,7 +193,10 @@ object ManualProfiling {
           val sep = "+-----" + (("+" + "-" * 9) * numVariants) + "+\n"
           val header = "| Var | " + groupedByVariant.map((v, _) => f"$v%7s").mkString(" | ") + " |\n"
           val table = (for ((variant, value1) <- data)
-            yield f"| $variant%3s | ${data.map((va, value2) => f"${value1 * 100.0 / value2}%7.2f").mkString(" | ")}" + " |")
+            yield f"| $variant%3s | ${data.map((va, value2) =>
+              if (value1 == -1 || value2 == -1) "   -   "
+              else f"${value1 * 100.0 / value2}%7.2f"
+            ).mkString(" | ")}" + " |")
             .mkString("", "\n", "\n")
 
           s"$version\n" + sep + header + sep + table + sep
@@ -203,17 +213,18 @@ object ManualProfiling {
   /** Creates the symbol table of a given elf and return two mappings from addresses to symbols, one with longs and one with
     * strings.
     */
-  def makeSymbolTable(elf: String): ZIO[Blocking, String, Map[String, String]] =
+  def makeSymbolTable(elf: String): ZIO[Blocking & Console, String, Map[String, String]] =
     for {
       // Verify existence of file
       _ <- IO.effect(File(elf).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$elf' does not exist."))
         .mapError(_ => s"File '$elf' is not accessible or does not exist.")
       // Read symbol and create mapping
-      data <- runForReturn(ManualProfiling.objdump, "-t", elf)
-      _ <- ZIO.when(data.exitCode != 0)(ZIO.fail("The symbol table could not be created"))
+      result <- runForReturn(ManualProfiling.objdump, "-t", elf).mapError(_ => "The symbol table could not be created")
+      _ <- ZIO.when(result._1 != 0)(ZIO.fail("The symbol table could not be created"))
     } yield {
+      val (code, data, error) = result
       // Split lines, split columns
-      val stringToSymbols = data.out.text.split("\n").map(_.split(" "))
+      val stringToSymbols = data.split("\n").map(_.split(" "))
       // take address and symbol name
         .filter(_.length > 2).map(a => raw"[0-9,a-f,A-F]{8}".r.findFirstIn(a.head) -> a.last)
         .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap

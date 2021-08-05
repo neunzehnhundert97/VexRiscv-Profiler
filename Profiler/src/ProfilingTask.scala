@@ -14,6 +14,7 @@ final case class ProfilingTask(
   file: String,
   version: String,
   makeTarget: Option[String] = None,
+  cleanTarget: Option[String] = None,
   variant: Option[Int] = None,
   config: Config
 ) {
@@ -24,12 +25,14 @@ final case class ProfilingTask(
   def resultFile = s"results/$fileName"
 
   /** Perform the wanted actions. */
-  def execute(config: Config, ref: FiberRef[String -> TaskState], sem: Semaphore): URIO[Console & Blocking & Clock, Unit] = {
+  def execute(
+    config: Config,
+    ref: FiberRef[String -> TaskState],
+    sem: Semaphore
+  ): ZIO[Console & Blocking & Clock, String, Unit] = {
     // Run profiling and analyzis and report occurring errors
-    (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref) *> ref.set(
-      name -> TaskState.Finished
-    ))
-      .catchAll(msg => reportError(msg, name))
+    (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref))
+      .ensuring(clean(config).ignore)
   }
 
   /** Build the exeutable. */
@@ -44,14 +47,12 @@ final case class ProfilingTask(
             "make",
             target,
             s"VERSION=$version",
-            config.profilerMakeFlags,
-            // Usage of list to let a empty result vanish
-            // Empyt strings cause make to fail
-            variant.map(v => List(s"VARIANT=$v")).getOrElse(Nil)
-          )
-          ret <- ZIO.when(r.exitCode != 0)(ZIO.fail(s"The profiler could not be build: ${r.out.text}"))
+            config.profilerMakeFlags.mkString(" "),
+            variant.map(v => s"VARIANT=$v").getOrElse("")
+          ).mapError(e => s"The profiler could not be build: $e")
+          (code, _, error) = r
+          _ <- ZIO.when(code != 0)(ZIO.fail(s"The profiler could not be build: $error"))
           end <- clock.currentTime(TimeUnit.SECONDS)
-          // _ <- reportSuccess(s"Done building in ${end - start} seconds", name)
         } yield ()
       }
     case None =>
@@ -68,6 +69,27 @@ final case class ProfilingTask(
     ZIO.when(config.doProfile)(
       sem.withPermit(ref.set(name -> TaskState.Profiling) *> ManualProfiling.profile(file, dataFile, config))
     )
+
+  /** Build the exeutable. */
+  def clean(config: Config) = cleanTarget match {
+    case Some(target) =>
+      // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
+      ZIO.when(config.doProfile) {
+        for {
+          r <- runForReturn(
+            "make",
+            target,
+            s"VERSION=$version",
+            config.profilerMakeFlags.mkString(" "),
+            // Usage of list to let a empty result vanish
+            // Empyt strings cause make to fail
+            variant.map(v => s"VARIANT=$v").getOrElse("")
+          ).mapError(e => s"The profiler could not be build: $e")
+        } yield ()
+      }
+    case None =>
+      ZIO.unit
+  }
 
   /** Analyze the gathered data. */
   def analyze(

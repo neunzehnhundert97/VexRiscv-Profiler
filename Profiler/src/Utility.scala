@@ -2,12 +2,14 @@ package masterthesis
 package profiler
 
 import java.io.IOException
+import java.io.{File => JFile}
 
 import better.files.File
 
 import zio.*
 import zio.console.{Console => ZConsole, putStrLn, putStr}
 import zio.blocking.{effectBlocking, blocking, Blocking}
+import zio.process.{Command, ProcessOutput, CommandError, Process}
 
 /** Prints a blue status message to stdout. */
 def reportStatus(msg: String, reporter: String = "Profiler") =
@@ -32,22 +34,20 @@ def writeToFile(fileName: String)(data: String): Task[Unit] =
 def readFromFile(fileName: String): Task[Iterator[String]] =
   IO.effect(File(fileName).lineIterator)
 
-def runForReturn(args: os.Shellable*): URIO[Blocking, os.CommandResult] =
-  blocking {
-    ZIO.effectTotal(os.proc(args*).call(check = false, mergeErrIntoOut = true))
-  }
+def runForReturn(args: String*): ZIO[Blocking & ZConsole, CommandError, (Int, String, String)] = for {
+  proc <- Command(args.head, args.tail.filter(!_.isBlank)*).run
+  code <- proc.exitCode
+  stdout <- proc.stdout.string
+  stderr <- proc.stderr.string
+} yield (code.code, stdout, stderr)
 
 /** Runs a shell command without any return wanted. */
-def runForEffect(args: os.Shellable*): ZIO[Blocking, Throwable, Unit] =
-  effectBlocking {
-    os.proc(args*).call()
-  }.discard
+def runForEffect(args: String*): ZIO[Blocking, Throwable, Unit] =
+  Command(args.head, args.tail.filter(!_.isBlank)*).exitCode.discard
 
 /** Runs a shell command with the output written into the given file. */
-def runForFileOutput(logFile: os.Path, mergeErrors: Boolean = false)(args: os.Shellable*): ZIO[Blocking, Throwable, Unit] =
-  effectBlocking {
-    os.proc(args*).call(stdout = logFile, mergeErrIntoOut = mergeErrors)
-  }.discard
+def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String*): ZIO[Blocking, CommandError, Unit] =
+  Command(args.head, args.tail.filter(!_.isBlank)*).stdout(ProcessOutput.FileAppendRedirect(new JFile(logFile))).exitCode.discard
 
 enum TaskState {
   case Initial, Building, Profiling, Analysing, Finished

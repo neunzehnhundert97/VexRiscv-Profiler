@@ -40,7 +40,8 @@ final case class PredefinedTask(
   name: String,
   hexFile: (String, String) => String,
   versions: List[String],
-  build: Boolean = false
+  build: Boolean = false,
+  clean: Boolean = false
 ) {
 
   /** Generates tasks for the profiler to execute. */
@@ -57,11 +58,12 @@ final case class PredefinedTask(
     }
 
     val buildTarget = if (build) Some(name) else None
+    val cleanTarget = if (clean) Some(s"$name-clean") else None
 
     // Generate tasks
     if (config.variants.isEmpty)
       for (version <- selectedVersions)
-        yield ProfilingTask(s"$name $version", hexFile(version, ""), version, buildTarget, None, config)
+        yield ProfilingTask(s"$name $version", hexFile(version, ""), version, buildTarget, None, None, config)
     else
       for (version <- selectedVersions; variant <- config.variants)
         yield {
@@ -70,6 +72,7 @@ final case class PredefinedTask(
             hexFile(version, variant.toString),
             version,
             buildTarget,
+            cleanTarget,
             Some(variant),
             config
           )
