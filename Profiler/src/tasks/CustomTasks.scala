@@ -13,7 +13,8 @@ def customTasks: List[PredefinedTask] = Nil
  * PredefinedTask(
  *   "name", // This name will be recognized by the command args and will be used for outputs and building (optional)
  *   "path/to/your/file.hex", // .hex is required and a .elf with the same name also (for symbol table and disassembly),
- *   false // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ *   false, // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ *   false  // Call cleaning make target after execution, the name has to be name-clean
  * )
  * 
  * If you have multiple target which represent version of the same scheme (e.g AES-128, AES-192, AES-256) and you want to
@@ -22,7 +23,8 @@ def customTasks: List[PredefinedTask] = Nil
  *   "name", // Same as above, but will trigger all version. See take, drop, or select for only work some of them
  *   (version, variant) => s"path/to/$version/and/$variant/of/your/file.elf", // Same as above, but a function
  *   List("Version1", "Version2"), // List of version, which will be directly inserted in the function above
- *   false // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ *   false, // Indicate, if you added a build target in the makefile and you wish the profiler to call it for you
+ *   false  // Call cleaning make target after execution, the name has to be name-clean
  * )
  * 
 */

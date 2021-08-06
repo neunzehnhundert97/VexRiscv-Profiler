@@ -22,8 +22,8 @@ object PredefinedTask {
     * @param build
     *   Indicates that this task has a target in the profiler's makefile which should be executed.
     */
-  def apply(name: String, hexFile: String, build: Boolean): PredefinedTask =
-    PredefinedTask(name, (_, _) => hexFile, List(""), build)
+  def apply(name: String, hexFile: String, build: Boolean, clean: Boolean): PredefinedTask =
+    PredefinedTask(name, (_, _) => hexFile, List(""), build, clean)
 }
 
 /** Case class for a shortcut for often tested files.
