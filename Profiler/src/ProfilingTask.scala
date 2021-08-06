@@ -16,26 +16,18 @@ final case class ProfilingTask(
   variant: Option[Int] = None,
   config: Config
 ) {
-
   def fileName = config.prepostfixed(file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse(""))
   def elfFile = s"${file.split(".hex").head}.elf"
   def dataFile = s"data/$fileName"
   def resultFile = s"results/$fileName"
 
   /** Perform the wanted actions. */
-  def execute(
-    config: Config,
-    ref: FiberRef[String -> TaskState],
-    sem: Semaphore
-  ): ZIO[Blocking, String, Unit] = {
+  def execute(config: Config, ref: FiberRef[String -> TaskState], sem: Semaphore): ZIO[Blocking, String, Unit] =
     // Run profiling and analyzis and report occurring errors
-    val a = (build(config, ref) *> profile(fileName, config, ref, sem) *> analyze(fileName, config, ref))
-      .ensuring(clean(config).ignore)
-    a
-  }
+    (build(ref) *> profile(fileName, ref, sem) *> analyze(fileName, ref)).ensuring(clean.ignore)
 
   /** Build the exeutable. */
-  def build(config: Config, ref: FiberRef[String -> TaskState]) = makeTarget match {
+  def build(ref: FiberRef[String -> TaskState]): ZIO[Blocking, String, Unit] = makeTarget match {
     case Some(target) =>
       // Proceed only when a make target exists and profiling is wanted
       ZIO.when(config.doProfile) {
@@ -57,18 +49,13 @@ final case class ProfilingTask(
   }
 
   /** Run the verilog simulation to create log data. */
-  def profile(
-    fileName: String,
-    config: Config,
-    ref: FiberRef[String -> TaskState],
-    sem: Semaphore
-  ): ZIO[Blocking, String, Unit] =
+  def profile(fileName: String, ref: FiberRef[String -> TaskState], sem: Semaphore): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
       sem.withPermit(ref.set(name -> TaskState.Profiling) *> ManualProfiling.profile(file, dataFile, config))
     )
 
   /** Build the exeutable. */
-  def clean(config: Config) = cleanTarget match {
+  def clean: ZIO[Blocking, String, Unit] = cleanTarget match {
     case Some(target) =>
       // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
       ZIO.when(config.doProfile) {
@@ -87,11 +74,7 @@ final case class ProfilingTask(
   }
 
   /** Analyze the gathered data. */
-  def analyze(
-    fileName: String,
-    config: Config,
-    ref: FiberRef[String -> TaskState]
-  ): ZIO[Blocking, String, Unit] =
+  def analyze(fileName: String, ref: FiberRef[String -> TaskState]): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doAnalysis)(
       ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
     )

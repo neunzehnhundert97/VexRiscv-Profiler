@@ -19,13 +19,12 @@ import zio.process.Command
 import upickle.default.write
 
 import tasks.PredefinedTask
+import scala.collection.immutable.SortedSet
 
 object ManualProfiling {
 
   /** Path to objdump for the analyzed elf. */
   val objdump = "riscv32-unknown-elf-objdump"
-
-  val everySecond = Schedule.spaced(1000.milliseconds)
 
   /** Displays the name of a boolean if it is true, else an empty string. */
   inline def literalBoolean(inline cond: Boolean): String =
@@ -72,17 +71,25 @@ object ManualProfiling {
     } yield ()
   }
 
+  /** */
   def executeTasks(tasks: List[ProfilingTask], config: Config): URIO[Console & Blocking & Clock, Unit] = for {
+    // Prepare auxiliaries
     ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
-    supervisor <- Supervisor.track(true)
-    start <- currentTime(TimeUnit.SECONDS)
-    logger <- reportFibreStatus(supervisor, ref, start, tasks.length).schedule(everySecond).ensuring(for {
-      now <- currentTime(TimeUnit.SECONDS)
-      _ <- reportUpdatedStatus(s"${now - start} seconds elaspsed, Current State Finished: ${tasks.length}\n")
-    } yield ()).fork
     sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
+    supervisor <- Supervisor.track(true)
+
+    // Start logging
+    start <- currentTime(TimeUnit.SECONDS)
+    logger <- reportFibreStatus(supervisor, ref, start, tasks.length)
+      .repeat(Schedule.fixed(1.seconds)).ensuring(
+        reportFibreStatus(supervisor, ref, start, tasks.length) <* putStrLn("").ignore
+      ).fork
     _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
+
+    // Actual execution in parallel
     res <- ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor)
+
+    // Report errors after execution
     (errors, success) = res
     _ <- ZIO.collectAll(errors.map(e => reportError(e)))
     _ <- logger.interrupt
@@ -94,10 +101,13 @@ object ManualProfiling {
     ref: FiberRef[String -> TaskState],
     begin: Long,
     tasks: Int
-  ) = for {
+  ): ZIO[Clock & Console, Nothing, Unit] = for {
+    // Unwrap data
     fibres <- supervisor.value
     wrappedStates = fibres.map(_.getRef(ref))
     states <- ZIO.collectAll(wrappedStates)
+
+    // Count states
     countedStates = states.filter(!_._1.isEmpty).foldLeft(Map[TaskState, Int]()) {
       case (map, (_, state)) =>
         map.updatedWith(state) {
@@ -107,9 +117,12 @@ object ManualProfiling {
     }
     finished = tasks - countedStates.map(_._2).sum
     fullStates = if (finished > 0) countedStates.updated(TaskState.Finished, finished) else countedStates
+    printString = fullStates.toList.sortBy(_._1.ordinal).map((a, b) => s"$a [$b]").mkString(" ==> ")
+
+    // Print status
     now <- currentTime(TimeUnit.SECONDS)
     _ <- ZIO.when(countedStates.map(_._2).sum != 0)(reportUpdatedStatus(
-      s"${now - begin} seconds elaspsed, Current State: ${fullStates.map((a, b) => s"$a: $b").mkString(", ")}"
+      s"${now - begin} seconds elaspsed, Current State: $printString"
     ))
   } yield ()
 
