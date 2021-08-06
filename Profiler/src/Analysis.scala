@@ -8,8 +8,9 @@ import scalatags.Text.all._
 
 import better.files._
 
-import zio.{IO, Task, ZIO, UIO, URIO, RIO}
+import zio.{IO, Task, ZIO, UIO, URIO, RIO, ExitCode, Chunk}
 import zio.blocking.Blocking
+import zio.process.{Command, CommandError}
 
 import upickle.default.read
 
@@ -52,7 +53,7 @@ object Analysis {
       report = callGraphReport(callTreeData, currentDate, logDate, revision)
       _ <- writeToFile(out)(report)
       // Generate graph
-      _ <- IO.when(visualize)(
+      _ <- ZIO.when(visualize)(
         writeToFile(out + ".png")(generateDotGraph(callTreeData)) *> generateDotGraph(out + ".png", out + ".png")
       )
     } yield ()
@@ -123,7 +124,7 @@ object Analysis {
       // Read symbol and create mapping
       symbolMappings <- readSymbolTable(s"$log-sym.json")
       // Read disassembly and create mapping from address to mnemonic and operands
-      symbols <- IO.effect(os.proc("riscv32-unknown-elf-objdump", "-d", elf).call().out.lines)
+      symbols <- Command("riscv32-unknown-elf-objdump", "-d", elf).lines
       // Read custom encodings from file
       additionalEncoding <- parseAdditionalInstructions("instructions_c.scv")
       // Do the analysis
@@ -138,7 +139,7 @@ object Analysis {
   def analyzeCycleCounts(
     data: Iterator[(String, Int)],
     symbolMappings: (Map[String, String], Map[Long, String]),
-    symbols: Vector[String],
+    symbols: Chunk[String],
     additionalEncoding: List[InstructionEncoding]
   ): (String, List[(String, List[(String, List[Int], String)])]) = {
     val (stringToSymbols, longToSymbols) = symbolMappings
@@ -235,8 +236,11 @@ object Analysis {
   }
 
   /** Converts the given dotfile into an PNG image. Needs the executable "dot" to be present in PATH. */
-  def generateDotGraph(dotFile: String, imageFile: String): Task[Unit] =
-    IO.effect(os.proc("dot", "-Tpng", imageFile, "-o", dotFile).call()).discard
+  def generateDotGraph(dotFile: String, imageFile: String): ZIO[Blocking, String, Unit] =
+    Command("dot", "-Tpng", imageFile, "-o", dotFile).exitCode.either.flatMap {
+      case Right(ExitCode.success) => ZIO.unit
+      case _                       => ZIO.fail(s"Generation of dot graph failed")
+    }
 
   /** Return color string for a gradient. */
   def gradient(position: Double): String = {
@@ -378,8 +382,7 @@ object Analysis {
   }
 
   /** Uses git to fetch the revision of the profiler. */
-  def currentRevision: Task[String] = IO.effect {
-    os.proc("git", "log", "-n", 1, "--pretty=format:%H", "--", "Profiler/src/ManualProfiling.scala")
-      .call().out.text
-  }
+  def currentRevision: URIO[Blocking, String] =
+    Command("git", "log", "-n", "1", "--pretty=format:%H", "--", "Profiler/src/ManualProfiling.scala")
+      .string.catchAll(_ => ZIO.succeed("unknown revision"))
 }
