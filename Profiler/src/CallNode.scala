@@ -48,14 +48,14 @@ final case class CallNode(function: String, depth: Int, cycleCount: Long, succes
   def cutOut(filter: List[String]): CallNode =
     if (filter.nonEmpty) {
       // Partition nodes on given blacklist
-      val (keptSuccessors, removedSuccesors) = successors.partition(c => !filter.exists(f => c.function.toLowerCase.contains(f)))
+      val (keptSuccessors, removedSuccessors) = successors.partition(c => !filter.exists(f => c.function.toLowerCase.contains(f)))
       // Cut all remaining successors
       val cutSuccessors = keptSuccessors.map(_.cutOut(filter))
       // Build new node
       CallNode(
         function,
         depth,
-        cycleCount - cutSuccessors.map(_.totalTime).sum,
+        ownTime + cutSuccessors.map(_.totalTime).sum,
         cutSuccessors
       )
     } else this
