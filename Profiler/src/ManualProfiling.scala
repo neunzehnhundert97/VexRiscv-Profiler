@@ -74,7 +74,7 @@ object ManualProfiling {
   /** */
   def executeTasks(tasks: List[ProfilingTask], config: Config): URIO[Console & Blocking & Clock, Unit] = for {
     // Prepare auxiliaries
-    ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial)
+    ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial, fork = _ => ("", TaskState.Initial), join = (p, c) => p)
     sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
     supervisor <- Supervisor.track(true)
 
