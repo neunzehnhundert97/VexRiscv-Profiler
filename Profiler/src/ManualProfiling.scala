@@ -20,6 +20,9 @@ import upickle.default.write
 
 import tasks.PredefinedTask
 import scala.collection.immutable.SortedSet
+import scala.util.matching.Regex
+import zio.process.CommandError
+import zio.blocking.Blocking.Service
 
 object ManualProfiling {
 
@@ -64,36 +67,41 @@ object ManualProfiling {
 
     for {
       // Execute in parallel
-      _ <- ZIO.when(doAnalysis || doProfile)(executeTasks(tasks, config))
-      _ <- ZIO.when(doBenchmark)(benchmark(tasks, config))
+      data <- if (doAnalysis || doProfile) executeTasks(tasks, config) else ZIO.succeed(Nil)
+      _ <- ZIO.when(doBenchmark)(benchmark(data, config))
         .catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
       _ <- ZIO.when(!doAnalysis && !doProfile && !doBenchmark)(reportStatus("No tasks to execute"))
     } yield ()
   }
 
   /** */
-  def executeTasks(tasks: List[ProfilingTask], config: Config): URIO[Console & Blocking & Clock, Unit] = for {
+  def executeTasks(
+    tasks: List[ProfilingTask],
+    config: Config
+  ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
     // Prepare auxiliaries
+    // The fiber ref is set to be only modied by the current fiber and is not inherited
     ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial, fork = _ => ("", TaskState.Initial), join = (p, c) => p)
     sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
     supervisor <- Supervisor.track(true)
 
+    // Actual execution in parallel
+    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor).fork
+
     // Start logging
     start <- currentTime(TimeUnit.SECONDS)
     logger <- reportFibreStatus(supervisor, ref, start, tasks.length)
-      .repeat(Schedule.fixed(1.seconds)).ensuring(
-        reportFibreStatus(supervisor, ref, start, tasks.length) <* putStrLn("").ignore
-      ).fork
+      .repeat(Schedule.fixed(1.seconds)).ignore.fork
     _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
 
-    // Actual execution in parallel
-    res <- ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor)
+    // Wait for completion
+    res <- (logger *> executor).join
 
     // Report errors after execution
     (errors, success) = res
     _ <- ZIO.collectAll(errors.map(e => reportError(e)))
     _ <- logger.interrupt
-  } yield ()
+  } yield success.collect { case Some(a) => a }.toList
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
@@ -101,7 +109,7 @@ object ManualProfiling {
     ref: FiberRef[String -> TaskState],
     begin: Long,
     tasks: Int
-  ): ZIO[Clock & Console, Nothing, Unit] = for {
+  ): ZIO[Clock & Console, String, Unit] = for {
     // Unwrap data
     fibres <- supervisor.value
     wrappedStates = fibres.map(_.getRef(ref))
@@ -121,9 +129,11 @@ object ManualProfiling {
 
     // Print status
     now <- currentTime(TimeUnit.SECONDS)
+    elapsed = now - begin
     _ <- ZIO.when(countedStates.map(_._2).sum != 0)(reportUpdatedStatus(
-      s"${now - begin} seconds elaspsed, Current State: $printString"
+      s"$elapsed seconds elaspsed, Current State: $printString"
     ))
+    _ <- if (finished == tasks && elapsed > 2) putStrLn("\n").ignore *> ZIO.fail("") else ZIO.unit
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
@@ -157,28 +167,23 @@ object ManualProfiling {
   } yield ()
 
   /** Generate a comparison of the absolute execution time of the measured task. */
-  def benchmark(tasks: List[ProfilingTask], config: Config) = {
-    // Use grep to find the line which prints the cycles
-    val grepedData =
-      ZIO.collectAllPar(
-        for (task <- tasks)
-          yield (Command("tail", "-n", "5", task.dataFile) | Command("grep", "SUCCESS")).string.map(task -> _)
-      )
-
-    val timeRegex = raw"^SUCCESS, (\d+) clock cycles ".r
+  def benchmark(data: List[ProfilingTask -> AnalysisResult], config: Config) = {
+    // Get timing data from analysis result
+    val extractedData = ZIO.collectAll(data.map {
+      case task -> (data: CallTreeData)        => ZIO.succeed(task -> data._1.totalTime)
+      case task -> (data: GroupedInstructions) => ZIO.fail("Benchmark on low level analysis is not implemented")
+    })
 
     // Extract the clock cycles
-    grepedData.map(_.map((name, output) =>
-      name -> timeRegex.findFirstMatchIn(output).map(_.group(1).toLong(16)).getOrElse(-1L)
-    )).map { data =>
+    extractedData.map { data =>
 
       // Group data: Line / Variant => Column / Version => Data
-      val groupedByVariant = data
+      val groupedByVariant: List[(Int, List[(String, Long)])] = data
         .groupBy(_._1.variant.get)
         .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1)).toList.sortBy(_._1)
 
       // Group data: Version => Variant => Data
-      val groupedByVersion = data
+      val groupedByVersion: List[(String, List[(Int, Long)])] = data
         .groupBy(_._1.version)
         .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy(_._1)).toList.sortBy(_._1)
 

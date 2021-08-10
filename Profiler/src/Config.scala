@@ -34,7 +34,9 @@ final case class Config(
     else if (doBenchmark && manualInputs.nonEmpty)
       IO.fail("A benchmark is currently only supported for predefined tasks.")
     else if (doBenchmark && predefinedTasks.length != 1)
-      IO.fail("A bechnmark may currently only be conducted for one target at a time")
+      IO.fail("A benchmark may currently only be conducted for one target at a time.")
+    else if (doBenchmark && !doAnalysis)
+      IO.fail("A benchmark may currently only be conducted together with an analysis.")
     else if ((take.nonEmpty || drop.nonEmpty) && select.nonEmpty)
       IO.fail("Select can only be used without drop and take.")
     else

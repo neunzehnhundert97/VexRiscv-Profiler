@@ -14,10 +14,17 @@ import zio.process.{Command, CommandError}
 
 import upickle.default.read
 
+type CallTreeData =
+  (CallNode, List[(String, Long, Long)], List[(String, Long, Double, Long, Double)], Map[String, Map[String, (Long, Long)]])
+
+type GroupedInstructions = List[(String, List[(String, List[Int], String)])]
+
+type AnalysisResult = CallTreeData | GroupedInstructions
+
 object Analysis {
   val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
-  def apply(log: String, elf: String, out: String, config: Config): ZIO[Blocking, String, Unit] = {
+  def apply(log: String, elf: String, out: String, config: Config): ZIO[Blocking, String, AnalysisResult] = {
     // Verify log file
     val logFile = File(log)
     if (!logFile.exists)
@@ -35,32 +42,30 @@ object Analysis {
   }
 
   /** The high level analysis given cycles counts and call times on a function level. Optionally, a call graph can be produced. */
-  def highLevel(log: File, elf: String, out: String, config: Config) = {
+  def highLevel(log: File, elf: String, out: String, config: Config): ZIO[Blocking, String, CallTreeData] = {
     import config.*
 
     for {
       // Read measurements and parse them into case classes
       data <- IO.effect(log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m })
+        .mapError(_ => "Could not read traces")
       // Read symbol and create mapping
-      (symbols, _) <- readSymbolTable(s"$log-sym.json")
+      symbols <- readSymbolTable(s"$log-sym.json").map(_._1).mapError(_ => "Could not read dumped symbol table")
       revision <- currentRevision
-      currentDate <- IO.effect(new Date())
-      logDate <- IO.effect(new Date(log.lastModifiedTime.toEpochMilli))
+      currentDate <- IO.effect(new Date()).mapError(_ => "Could not get current date")
+      logDate <- IO.effect(new Date(log.lastModifiedTime.toEpochMilli)).mapError(_ => "Could not get time of last modification")
       // Analyze collected data
       tree <- IO.fromOption(accumulateSophisticated(data, symbols)).mapError(_ => "Call graph could not be created")
       callTreeData = analyzeCallTree(tree, symbols, config)
       // Generate text output
       report = callGraphReport(callTreeData, currentDate, logDate, revision)
-      _ <- writeToFile(out)(report)
+      _ <- writeToFile(out)(report).mapError(_ => "Could not write report")
       // Generate graph
       _ <- ZIO.when(visualize)(
         writeToFile(out + ".png")(generateDotGraph(callTreeData)) *> generateDotGraph(out + ".png", out + ".png")
-      )
-    } yield ()
+      ).mapError(_ => "Could not create graph image")
+    } yield callTreeData
   }
-
-  type CallTreeData =
-    (CallNode, List[(String, Long, Long)], List[(String, Long, Double, Long, Double)], Map[String, Map[String, (Long, Long)]])
 
   /** Builds the call tree from measurements and provides analytical data. */
   def analyzeCallTree(tree: CallNode, symbols: Map[String, String], config: Config): CallTreeData = {
@@ -114,25 +119,26 @@ object Analysis {
   /** A detailed overview for a single function and its decendents is created, giving cycles count for each individual
     * instruction. A refined HTML can be created additionally.
     */
-  def lowLevel(log: File, elf: String, out: String, config: Config): RIO[Blocking, Unit] = {
+  def lowLevel(log: File, elf: String, out: String, config: Config): ZIO[Blocking, String, GroupedInstructions] = {
     import config.*
 
     for {
       // Read measurements and parse them
       data <- IO.effect(log.lineIterator.map(raw"(\S{8}):(\d+)".r.findFirstMatchIn)
-        .collect { case Some(mat) => mat.group(1) -> mat.group(2).toInt })
+        .collect { case Some(mat) => mat.group(1) -> mat.group(2).toInt }).mapError(_ => "Could not read data")
       // Read symbol and create mapping
-      symbolMappings <- readSymbolTable(s"$log-sym.json")
+      symbolMappings <- readSymbolTable(s"$log-sym.json").mapError(_ => "Could not read symbol table")
       // Read disassembly and create mapping from address to mnemonic and operands
-      symbols <- Command("riscv32-unknown-elf-objdump", "-d", elf).lines
+      symbols <- Command("riscv32-unknown-elf-objdump", "-d", elf).lines.mapError(_ => "Could create disassembly")
       // Read custom encodings from file
-      additionalEncoding <- parseAdditionalInstructions("instructions_c.scv")
+      additionalEncoding <- parseAdditionalInstructions("instructions_c.scv").mapError(_ => "Could not parse instructions")
       // Do the analysis
       (output, groupedInstructions) = analyzeCycleCounts(data, symbolMappings, symbols, additionalEncoding)
       // Write text output
-      _ <- writeToFile(out)(output)
+      _ <- writeToFile(out)(output).mapError(_ => "Could not write report")
       _ <- IO.when(visualize)(writeToFile(s"$out.html")(generateHotnessHTML(groupedInstructions, out)))
-    } yield ()
+        .mapError(_ => "Could not write HTML")
+    } yield groupedInstructions
   }
 
   /** */
@@ -141,7 +147,7 @@ object Analysis {
     symbolMappings: (Map[String, String], Map[Long, String]),
     symbols: Chunk[String],
     additionalEncoding: List[InstructionEncoding]
-  ): (String, List[(String, List[(String, List[Int], String)])]) = {
+  ): (String, GroupedInstructions) = {
     val (stringToSymbols, longToSymbols) = symbolMappings
     val disassemblyRegex = raw"([0-9,a-f]+):\s+([0-9,a-f]+)\s+(.+)".r
 

@@ -22,7 +22,11 @@ final case class ProfilingTask(
   def resultFile = s"results/$fileName"
 
   /** Perform the wanted actions. */
-  def execute(config: Config, ref: FiberRef[String -> TaskState], sem: Semaphore): ZIO[Blocking, String, Unit] =
+  def execute(
+    config: Config,
+    ref: FiberRef[String -> TaskState],
+    sem: Semaphore
+  ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
     (build(ref) *> profile(fileName, ref, sem) *> analyze(fileName, ref)).ensuring(clean.ignore)
 
@@ -74,10 +78,14 @@ final case class ProfilingTask(
   }
 
   /** Analyze the gathered data. */
-  def analyze(fileName: String, ref: FiberRef[String -> TaskState]): ZIO[Blocking, String, Unit] =
-    ZIO.when(config.doAnalysis)(
-      ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
-    )
+  def analyze(
+    fileName: String,
+    ref: FiberRef[String -> TaskState]
+  ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
+    if (config.doAnalysis)
+      ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config).map(a => Some(this -> a))
+    else
+      ZIO.none
 
   override def toString: String =
     s"[ProfilingTask $name]"
