@@ -132,10 +132,8 @@ object Controller {
     // Print status
     now <- currentTime(TimeUnit.SECONDS)
     elapsed = now - begin
-    _ <- ZIO.when(countedStates.map(_._2).sum != 0)(reportUpdatedStatus(
-      s"$elapsed seconds elaspsed, Current State: $printString"
-    ))
-    _ <- if (finished == tasks && elapsed > 2) putStrLn("\n").ignore *> ZIO.fail("") else ZIO.unit
+    _ <- reportUpdatedStatus(s"$elapsed seconds elaspsed, Current State: $printString")
+    _ <- if (finished == tasks && elapsed > 2) putStr("\n").ignore *> ZIO.fail("") else ZIO.unit
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
