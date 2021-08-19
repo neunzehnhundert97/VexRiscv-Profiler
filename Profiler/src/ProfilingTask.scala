@@ -42,6 +42,7 @@ final case class ProfilingTask(
           r <- runForReturn(
             "make",
             target,
+            s"INSTRUMENT_FUNCTIONS=${if (config.experimentalProfiling) "N" else "Y"}",
             s"VERSION=$version",
             config.profilerMakeFlags.mkString(" "),
             variant.map(v => s"VARIANT=$v").getOrElse("")

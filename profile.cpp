@@ -2257,14 +2257,14 @@ public:
 					// Function left
 					else if (index != -1 && !functionStack.empty() && functionStack.top() != index)
 					{
-						//printf("Top on stack: %d\n", functionStack.top());
 						printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], instanceCycles);
 						functionStack.pop();
-						if (!functionStack.empty() && index != functionStack.top())
+						while (!functionStack.empty() && index != functionStack.top())
 						{
-							printf("Invalid return found\n");
-							printf("Excepting to get back to %08X, but went to %08X in %08X\n", registeredLabels[functionStack.top()], top->VexRiscv->lastStagePc, registeredLabels[index]);
-							fail();
+							// For multiple returns at once rewind the stack until we are back on course
+							printf("Popping stack\n");
+							printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], instanceCycles);
+							functionStack.pop();
 						}
 					}
 				}

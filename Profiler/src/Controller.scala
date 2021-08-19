@@ -234,7 +234,7 @@ object Controller {
         }
 
       resultTable + "\n\n" + compareTables.mkString("\n")
-    } >>= writeToFile(s"results/${config.prepostfixed("Benchmark.txt")}")
+    } >>= writeToFile(s"results/${config.prepostfixed("Benchmark")}.txt")
   }
 
   /** Converts the symbol table into JSON and writes it in the data folder. */
