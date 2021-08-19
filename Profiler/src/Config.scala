@@ -24,7 +24,8 @@ final case class Config(
   postfix: Option[String],
   prefix: Option[String],
   profileThreads: Option[Int],
-  analysisThreads: Option[Int]
+  analysisThreads: Option[Int],
+  experimentalProfiling: Boolean
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
@@ -110,6 +111,8 @@ object Config {
     val profileThreads = extractArgumentOption(args, "profileThreads", _.toInt)
     val analysisThreads = extractArgumentOption(args, "analysisThreads", _.toInt)
 
+    val experimentalProfiling = args.contains("experimentalProfiling")
+
     // Put all in one object to ease passing around
     Config(
       doProfile,
@@ -130,7 +133,8 @@ object Config {
       postfix,
       prefix,
       profileThreads,
-      analysisThreads
+      analysisThreads,
+      experimentalProfiling
     )
   }
 }

@@ -26,6 +26,14 @@
 int profileMode = 1;
 uint32_t debuggedFunction = 0;
 int desiredFunctionCalls = 0;
+uint32_t *registeredLabels = NULL;
+uint32_t numberOfLabels = 0;
+
+std::stack<uint32_t> functionStack;
+int currentPCCounter = 0;
+int32_t lastPc = 0;
+int32_t lastIns = 0;
+int functionOccurred = 0;
 
 using namespace std;
 
@@ -2156,13 +2164,6 @@ public:
 
 		bool failed = false;
 
-		// Define stack to keep track of the current function
-		std::stack<uint32_t> functionStack;
-		int currentPCCounter = 0;
-		int32_t lastPc = 0;
-		int32_t lastIns = 0;
-		int functionOccurred = 0;
-
 		try
 		{
 			// run simulation for 100 clock periods
@@ -2193,41 +2194,82 @@ public:
 
 				currentTime = i;
 
+				//printf("PC: %08X %d\n", top->VexRiscv->lastStagePc, top->VexRiscv->lastStageIsFiring);
+
 				// Print trace for entering a function
-				if (top->VexRiscv->CsrPlugin_mscratch > 1)
+				if (profileMode != 3)
 				{
-					if (profileMode == 1)
-						printf("E:%08X:%lu\n", top->VexRiscv->CsrPlugin_mscratch, instanceCycles);
-					functionStack.push(top->VexRiscv->CsrPlugin_mscratch);
-					if (top->VexRiscv->CsrPlugin_mscratch == debuggedFunction)
-						functionOccurred += 1;
-					top->VexRiscv->CsrPlugin_mscratch = 0;
+					if (top->VexRiscv->CsrPlugin_mscratch > 1)
+					{
+						if (profileMode == 1)
+							printf("E:%08X:%lu\n", top->VexRiscv->CsrPlugin_mscratch, instanceCycles);
+						functionStack.push(top->VexRiscv->CsrPlugin_mscratch);
+						if (top->VexRiscv->CsrPlugin_mscratch == debuggedFunction)
+							functionOccurred += 1;
+						top->VexRiscv->CsrPlugin_mscratch = 0;
+					}
+					// Print trace for leaving a function
+					else if (top->VexRiscv->CsrPlugin_mscratch == 1)
+					{
+						uint32_t currentFunc = functionStack.top();
+						if (profileMode == 1)
+							printf("L:%08X:%lu\n", currentFunc, instanceCycles);
+						if (functionStack.top() == debuggedFunction && functionOccurred == desiredFunctionCalls)
+							pass();
+						functionStack.pop();
+						top->VexRiscv->CsrPlugin_mscratch = 0;
+					}
+
+					if (profileMode == 2 && !functionStack.empty() && functionStack.top() == debuggedFunction)
+					{
+						if (currentPCCounter != 0 && top->VexRiscv->lastStagePc != lastPc)
+						{
+							printf("%08X:%d\n", lastPc, currentPCCounter);
+							currentPCCounter = 1;
+						}
+						else if (top->VexRiscv->lastStagePc == lastPc || top->VexRiscv->lastStagePc == 0)
+							currentPCCounter += 1;
+						else
+							currentPCCounter = 1;
+						lastPc = top->VexRiscv->lastStagePc;
+					}
 				}
-				// Print trace for leaving a function
-				else if (top->VexRiscv->CsrPlugin_mscratch == 1)
+				// Detect jump
+				else if (profileMode == 3 && top->VexRiscv->lastStageIsFiring /*  && top->VexRiscv->lastStagePc - lastPc > 4 */)
 				{
-					uint32_t currentFunc = functionStack.top();
-					if (profileMode == 1)
-						printf("L:%08X:%lu\n", currentFunc, instanceCycles);
-					if (functionStack.top() == debuggedFunction && functionOccurred == desiredFunctionCalls)
-						pass();
-					functionStack.pop();
-					top->VexRiscv->CsrPlugin_mscratch = 0;
+					// Determine current function
+					int index = -1;
+					for (int x = 0; x < numberOfLabels; ++x)
+						if (top->VexRiscv->lastStagePc >= registeredLabels[x])
+						{
+							index = x;
+							break;
+						}
+
+					//printf("In %d %08X\n", index, registeredLabels[index]);
+
+					// Function entered
+					if (index != -1 && top->VexRiscv->lastStagePc == registeredLabels[index] && (functionStack.empty() || functionStack.top() != index))
+					{
+						printf("E:%08X:%lu\n", registeredLabels[index], instanceCycles);
+						functionStack.push(index);
+					}
+					// Function left
+					else if (index != -1 && !functionStack.empty() && functionStack.top() != index)
+					{
+						//printf("Top on stack: %d\n", functionStack.top());
+						printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], instanceCycles);
+						functionStack.pop();
+						if (!functionStack.empty() && index != functionStack.top())
+						{
+							printf("Invalid return found\n");
+							printf("Excepting to get back to %08X, but went to %08X in %08X\n", registeredLabels[functionStack.top()], top->VexRiscv->lastStagePc, registeredLabels[index]);
+							fail();
+						}
+					}
 				}
 
-				if (profileMode == 2 && !functionStack.empty() && functionStack.top() == debuggedFunction)
-				{
-					if (currentPCCounter != 0 && top->VexRiscv->lastStagePc != lastPc)
-					{
-						printf("%08X:%d\n", lastPc, currentPCCounter);
-						currentPCCounter = 1;
-					}
-					else if (top->VexRiscv->lastStagePc == lastPc || top->VexRiscv->lastStagePc == 0)
-						currentPCCounter += 1;
-					else
-						currentPCCounter = 1;
-					lastPc = top->VexRiscv->lastStagePc;
-				}
+				lastPc = top->VexRiscv->lastStagePc;
 
 #ifdef FLOW_INFO
 				if (i % 2000000 == 0)
@@ -3488,10 +3530,26 @@ int main(int argc, char **argv, char **env)
 	if (argc > 3)
 		profileMode = atoi(argv[3]);
 
-	if (profileMode && argc > 5)
+	if (profileMode == 2 && argc > 5)
 	{
 		debuggedFunction = strtol(argv[4], NULL, 16);
 		desiredFunctionCalls = atoi(argv[5]);
+	}
+
+	if (profileMode == 3 && argc > 4)
+	{
+		registeredLabels = new uint32_t[argc - 4];
+		numberOfLabels = argc - 4;
+		for (int x = 0; x < argc - 4; ++x)
+		{
+			registeredLabels[x] = strtol(argv[x + 4], NULL, 16);
+			if (x > 0 && registeredLabels[x] > registeredLabels[x - 1])
+			{
+				printf("Labels are not sorted correctly\n");
+				exit(11);
+			}
+		}
+		printf("%d labels read\n", argc - 4);
 	}
 
 	WorkspaceRegression(argv[1])
@@ -3500,6 +3558,14 @@ int main(int argc, char **argv, char **env)
 		->run(50e10);
 
 	uint64_t duration = timer_end(startedAt);
+
+	// Append the last leaving call
+	if (profileMode == 3)
+	{
+		delete[] registeredLabels;
+		if (!functionStack.empty())
+			printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], Workspace::cycles);
+	}
 	if (Workspace::successCounter == Workspace::testsCounter)
 		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
 	else

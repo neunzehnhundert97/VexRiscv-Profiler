@@ -47,5 +47,6 @@ object Main extends zio.App {
       |  postfix=[string]      : Appends the given string to every produced output file
       |  profileThreads=[n]    : Ensures maximal n threads are used for profiling (default is the number of logical cores minus one)
       |  analysisThreads=[n]   : Ensures maximal n threads are used for heavy analysis (default is the number of logical cores minus one)
+      |  experimentalProfiling : Switches to the experimental profiling mode
     """.stripMargin)
 }

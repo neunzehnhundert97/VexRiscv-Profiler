@@ -73,6 +73,7 @@ final case class ProfilingTask(
             config.profilerMakeFlags.mkString(" "),
             variant.map(v => s"VARIANT=$v").getOrElse("")
           ).mapError(e => s"The profiler could not be build: $e")
+          _ <- ZIO.when(r._1 != 0)(ZIO.fail("Profiler returned non zero exit code."))
         } yield ()
       }
     case None =>

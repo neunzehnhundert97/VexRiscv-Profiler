@@ -138,17 +138,36 @@ object Controller {
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
   def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
-    // Verify existence of file
+    // Verify existence of files
     _ <- IO.when(!hexFile.endsWith("hex"))(IO.fail(s"The given file '$hexFile' has no .hex extension."))
     _ <- IO.effect(File(hexFile).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$hexFile' does not exist."))
       .mapError(_ => s"File '$hexFile' is not accessible or does not exist.")
+
+    // Get symbol table and dump it for later
     symbolTable <- makeSymbolTable(hexFile.replace(".hex", ".elf"))
     _ <- dumpSymbolTable(symbolTable, s"$dataFile-sym.json").mapError(e => s"Symbol table could not be dumped because: $e")
+
+    // Do the actual profiling
     _ <- config.debuggedFunction.match {
       case None =>
         // Call profiler
-        runForFileOutput(dataFile)("./obj_dir/VVexRiscv", hexFile, config.bootAt, "1")
-          .mapError(_ => "The profiler exited with a non zero exit value")
+        if (!config.experimentalProfiling)
+          runForFileOutput(dataFile)(
+            "./obj_dir/VVexRiscv",
+            hexFile,
+            config.bootAt,
+            "1"
+          ).mapError(e => s"The profiler exited with a non zero exit value: $e")
+        else
+          runForFileOutput(dataFile)(
+            (List(
+              "./obj_dir/VVexRiscv",
+              hexFile,
+              config.bootAt,
+              "3"
+            ) ++ symbolTable.map(_._1).toList.sorted.reverse)*
+          ).mapError(e => s"The profiler exited with a non zero exit value: $e")
+
       case Some(func) =>
         symbolTable.find(_._2 == func) match {
           case None               => ZIO.fail(s"The given symbol '$func' could not be found in the symbol table.")
@@ -230,15 +249,17 @@ object Controller {
       // Verify existence of file
       _ <- IO.effect(File(elf).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$elf' does not exist."))
         .mapError(_ => s"File '$elf' is not accessible or does not exist.")
+
       // Read symbol and create mapping
       result <- runForReturn(Controller.objdump, "-t", elf).mapError(_ => "The symbol table could not be created")
       _ <- ZIO.when(result._1 != 0)(ZIO.fail("The symbol table could not be created"))
     } yield {
       val (code, data, error) = result
+
       // Split lines, split columns
       val stringToSymbols = data.split("\n").map(_.split(" "))
       // take address and symbol name
-        .filter(_.length > 2).map(a => raw"[0-9,a-f,A-F]{8}".r.findFirstIn(a.head) -> a.last)
+        .filter(line => line.length > 2 && line.contains("F")).map(a => raw"[0-9,a-f,A-F]{8}".r.findFirstIn(a.head) -> a.last)
         .collect { case (Some(head), last) => head.toUpperCase -> last.strip.replace(".", "dot") }.toMap
 
       stringToSymbols
