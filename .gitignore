@@ -10,3 +10,6 @@ data
 results
 VexRiscv.v
 instructions_s.csv
+
+# Testing ground
+Tests
