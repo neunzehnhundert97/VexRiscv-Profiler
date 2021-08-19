@@ -3549,6 +3549,9 @@ int main(int argc, char **argv, char **env)
 			}
 		}
 		printf("%d labels read\n", argc - 4);
+
+		// Printing synthetic wrapper function
+		printf("E:FFFFFFFF:0\n");
 	}
 
 	WorkspaceRegression(argv[1])
@@ -3563,10 +3566,13 @@ int main(int argc, char **argv, char **env)
 	{
 		if (!functionStack.empty())
 		{
-			printf("Finish stack with index %d, length left %d\n", functionStack.top(), functionStack.size());
+			printf("Finish stack with index %d, length left %lu\n", functionStack.top(), functionStack.size());
 			printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], Workspace::cycles);
 		}
 		delete[] registeredLabels;
+
+		// Leaving synthetic wrapper function
+		printf("L:FFFFFFFF:%lu\n", Workspace::cycles);
 	}
 	if (Workspace::successCounter == Workspace::testsCounter)
 		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
