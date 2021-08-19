@@ -57,7 +57,7 @@ final case class ProfilingTask(
   /** Run the verilog simulation to create log data. */
   def profile(fileName: String, ref: FiberRef[String -> TaskState], sem: Semaphore): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
-      sem.withPermit(ref.set(name -> TaskState.Profiling) *> ManualProfiling.profile(file, dataFile, config))
+      sem.withPermit(ref.set(name -> TaskState.Profiling) *> Controller.profile(file, dataFile, config))
     )
 
   /** Build the exeutable. */

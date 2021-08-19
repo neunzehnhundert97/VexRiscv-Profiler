@@ -19,7 +19,7 @@ object Main extends zio.App {
     else
       for {
         start <- clock.currentTime(TimeUnit.SECONDS)
-        _ <- ManualProfiling(args)
+        _ <- Controller(args)
         end <- clock.currentTime(TimeUnit.SECONDS)
         _ <- reportStatus(s"Done in ${end - start} seconds")
       } yield ()

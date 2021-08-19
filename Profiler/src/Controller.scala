@@ -24,7 +24,7 @@ import scala.util.matching.Regex
 import zio.process.CommandError
 import zio.blocking.Blocking.Service
 
-object ManualProfiling {
+object Controller {
 
   /** Path to objdump for the analyzed elf. */
   val objdump = "riscv32-unknown-elf-objdump"
@@ -233,7 +233,7 @@ object ManualProfiling {
       _ <- IO.effect(File(elf).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$elf' does not exist."))
         .mapError(_ => s"File '$elf' is not accessible or does not exist.")
       // Read symbol and create mapping
-      result <- runForReturn(ManualProfiling.objdump, "-t", elf).mapError(_ => "The symbol table could not be created")
+      result <- runForReturn(Controller.objdump, "-t", elf).mapError(_ => "The symbol table could not be created")
       _ <- ZIO.when(result._1 != 0)(ZIO.fail("The symbol table could not be created"))
     } yield {
       val (code, data, error) = result
