@@ -2235,7 +2235,7 @@ public:
 					}
 				}
 				// Detect jump
-				else if (profileMode == 3 && top->VexRiscv->lastStageIsFiring /*  && top->VexRiscv->lastStagePc - lastPc > 4 */)
+				else if (profileMode == 3 && top->VexRiscv->lastStageIsFiring)
 				{
 					// Determine current function
 					int index = -1;
@@ -2245,8 +2245,6 @@ public:
 							index = x;
 							break;
 						}
-
-					//printf("In %d %08X\n", index, registeredLabels[index]);
 
 					// Function entered
 					if (index != -1 && top->VexRiscv->lastStagePc == registeredLabels[index] && (functionStack.empty() || functionStack.top() != index))
@@ -3543,6 +3541,7 @@ int main(int argc, char **argv, char **env)
 		for (int x = 0; x < argc - 4; ++x)
 		{
 			registeredLabels[x] = strtol(argv[x + 4], NULL, 16);
+			printf("Label[%02d] = %08X\n", x, registeredLabels[x]);
 			if (x > 0 && registeredLabels[x] > registeredLabels[x - 1])
 			{
 				printf("Labels are not sorted correctly\n");
@@ -3562,9 +3561,12 @@ int main(int argc, char **argv, char **env)
 	// Append the last leaving call
 	if (profileMode == 3)
 	{
-		delete[] registeredLabels;
 		if (!functionStack.empty())
+		{
+			printf("Finish stack with index %d, length left %d\n", functionStack.top(), functionStack.size());
 			printf("L:%08X:%lu\n", registeredLabels[functionStack.top()], Workspace::cycles);
+		}
+		delete[] registeredLabels;
 	}
 	if (Workspace::successCounter == Workspace::testsCounter)
 		printf("SUCCESS, %lu clock cycles in %.2f s (%f Khz)\n", Workspace::cycles, duration * 1e-9, Workspace::cycles / (duration * 1e-6));
