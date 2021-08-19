@@ -48,7 +48,7 @@ def runForEffect(args: String*): ZIO[Blocking, Throwable, Unit] =
 
 /** Runs a shell command with the output written into the given file. */
 def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String*): ZIO[Blocking, CommandError, Unit] =
-  Command(args.head, args.tail.filter(!_.isBlank)*).stdout(ProcessOutput.FileAppendRedirect(new JFile(logFile))).exitCode.discard
+  Command(args.head, args.tail.filter(!_.isBlank)*).stdout(ProcessOutput.FileRedirect(new JFile(logFile))).exitCode.discard
 
 enum TaskState {
   case Initial, Building, Profiling, Analysing, Finished
