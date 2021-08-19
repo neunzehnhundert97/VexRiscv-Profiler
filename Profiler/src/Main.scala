@@ -45,5 +45,7 @@ object Main extends zio.App {
       |  drop=[n]              : Drops n items from each predefined task's list, drop happens before take
       |  select=[n[,n..]]      : Selects the given indices from each predefined task's list, not compatible with take or drop
       |  postfix=[string]      : Appends the given string to every produced output file
+      |  profileThreads=[n]    : Ensures maximal n threads are used for profiling (default is the number of logical cores minus one)
+      |  analysisThreads=[n]   : Ensures maximal n threads are used for heavy analysis (default is the number of logical cores minus one)
     """.stripMargin)
 }

@@ -79,14 +79,16 @@ object ManualProfiling {
     tasks: List[ProfilingTask],
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
-    // Prepare auxiliaries
-    // The fiber ref is set to be only modied by the current fiber and is not inherited
+    // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
     ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial, fork = _ => ("", TaskState.Initial), join = (p, c) => p)
-    sem <- Semaphore.make(JRuntime.getRuntime().availableProcessors())
+
+    // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
+    semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
+    semAnalyse <- Semaphore.make(config.analysisThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
     supervisor <- Supervisor.track(true)
 
     // Actual execution in parallel
-    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, sem)).supervised(supervisor).fork
+    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semProfile, semAnalyse)).supervised(supervisor).fork
 
     // Start logging
     start <- currentTime(TimeUnit.SECONDS)

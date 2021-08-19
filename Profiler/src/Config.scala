@@ -22,7 +22,9 @@ final case class Config(
   exclude: List[String],
   predefinedTasks: List[PredefinedTask],
   postfix: Option[String],
-  prefix: Option[String]
+  prefix: Option[String],
+  profileThreads: Option[Int],
+  analysisThreads: Option[Int]
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
@@ -104,6 +106,10 @@ object Config {
     val postfix = extractArgumentOption(args, "postfix")
     val prefix = extractArgumentOption(args, "prefix")
 
+    // Thread limits
+    val profileThreads = extractArgumentOption(args, "profileThreads", _.toInt)
+    val analysisThreads = extractArgumentOption(args, "analysisThreads", _.toInt)
+
     // Put all in one object to ease passing around
     Config(
       doProfile,
@@ -122,7 +128,9 @@ object Config {
       exclude,
       customTasks,
       postfix,
-      prefix
+      prefix,
+      profileThreads,
+      analysisThreads
     )
   }
 }

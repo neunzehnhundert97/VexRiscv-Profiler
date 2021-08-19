@@ -25,10 +25,12 @@ final case class ProfilingTask(
   def execute(
     config: Config,
     ref: FiberRef[String -> TaskState],
-    sem: Semaphore
+    semProfile: Semaphore,
+    semAnalyse: Semaphore
   ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
-    (build(ref) *> profile(fileName, ref, sem) *> analyze(fileName, ref)).ensuring(clean.ignore)
+    (ref.set(name -> TaskState.Initial) *> build(ref) *> profile(fileName, ref, semProfile) *>
+      analyze(fileName, ref, semAnalyse)).ensuring(clean.ignore)
 
   /** Build the exeutable. */
   def build(ref: FiberRef[String -> TaskState]): ZIO[Blocking, String, Unit] = makeTarget match {
@@ -80,10 +82,12 @@ final case class ProfilingTask(
   /** Analyze the gathered data. */
   def analyze(
     fileName: String,
-    ref: FiberRef[String -> TaskState]
+    ref: FiberRef[String -> TaskState],
+    sem: Semaphore
   ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
     if (config.doAnalysis)
-      ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config).map(a => Some(this -> a))
+      sem.withPermit(ref.set(name -> TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
+        .map(a => Some(this -> a)))
     else
       ZIO.none
 
