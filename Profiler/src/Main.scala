@@ -33,8 +33,9 @@ object Main extends zio.App {
       |  help, -h, --h         : Display this help
       |  profile               : Perform the profiling
       |  analysis              : Perform a analysis
+      |  process               : Perform profiling and analysis
       |  benchmark             : Perform a benchmark, only usefull with one target and variants
-      |  graph                 : Create a graphical representation for the given analysis
+      |  visualize             : Create a graphical representation for the given analysis
       |  func=[name]           : Name of a function for instruction level analysis. Also changed the analysis mode
       |  variants=[v1[,v2..]]  : A list of variants to work on, for instance to benchmark different versions (only predefined tasks)
       |  input=[file,file...]  : Input files to profile. Expected to be .hex with a .elf of the same name in the same directory
