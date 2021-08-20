@@ -12,7 +12,7 @@ import zio.{IO, Task, ZIO, UIO, URIO, RIO, ExitCode, Chunk}
 import zio.blocking.Blocking
 import zio.process.{Command, CommandError}
 
-import upickle.default.read
+import upickle.default.{read, write}
 
 type CallTreeData =
   (CallNode, List[(String, Long, Long)], List[(String, Long, Double, Long, Double)], Map[String, Map[String, (Long, Long)]])
@@ -49,17 +49,23 @@ object Analysis {
       // Read measurements and parse them into case classes
       data <- IO.effect(log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m })
         .mapError(_ => "Could not read traces")
+
       // Read symbol and create mapping
       symbols <- readSymbolTable(s"$log-sym.json").map(_._1).mapError(_ => "Could not read dumped symbol table")
       revision <- currentRevision
       currentDate <- IO.effect(new Date()).mapError(_ => "Could not get current date")
       logDate <- IO.effect(new Date(log.lastModifiedTime.toEpochMilli)).mapError(_ => "Could not get time of last modification")
+
       // Analyze collected data
       tree <- IO.fromOption(accumulateSophisticated(data, symbols)).mapError(_ => "Call graph could not be created")
       callTreeData = analyzeCallTree(tree, symbols, config)
+
       // Generate text output
       report = callGraphReport(callTreeData, currentDate, logDate, revision)
       _ <- writeToFile(out)(report).mapError(_ => "Could not write report")
+      //_ <- writeToFile("Calltree.json")(write(callTreeData, 1)).mapError(_ => "Could not write report")
+      //_ <- writeToFile("Calltree.txt")(callTreeData._1.showAll).mapError(_ => "Could not write report")
+
       // Generate graph
       _ <- ZIO.when(visualize)(
         writeToFile(out + ".png")(generateDotGraph(callTreeData)) *> generateDotGraph(out + ".png", out + ".png")
@@ -356,13 +362,15 @@ object Analysis {
         // Get the nodes that are below the current function and the rest
         val (lower, higher) = queue.span(_.depth > depth)
         // Assemble new node
-        val node = CallNode(symbols.getOrElse(addr, addr), depth, ctr - entry, lower)
+        val node = CallNode(symbols.getOrElse(addr, addr), depth, ctr - entry, lower).compact
         (
           node :: higher,
           rest,
           depth - 1
         )
     }._1.headOption
+      // Rename the wrapper
+      .map(n => if (n.function == "FFFFFFFF") n.copy(function = "Measurement Wrapper") else n)
   }
 
   /** Reads the dumped symbol table. */
