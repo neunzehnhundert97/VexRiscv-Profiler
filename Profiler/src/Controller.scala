@@ -80,7 +80,7 @@ object Controller {
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- Ref.make[Map[ProfilingTask, TaskState]](Map())
+    ref <- Ref.make[Map[ProfilingTask, TaskState]](tasks.map(_ -> TaskState.Initial).toMap)
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
     semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
@@ -100,7 +100,14 @@ object Controller {
 
     // Report errors after execution
     (errors, success) = res
-    _ <- ZIO.collectAll(errors.map(e => reportError(e)))
+    _ <- ZIO.collectAll(errors.map { (task, error) =>
+      val lines = error.split("\n")
+      if (lines.length == 1)
+        reportError(error, task.name)
+      else
+        reportError(s"Error message with ${lines.length} lines was dumped to ${task.resultFile}.error", task.name)
+          *> writeToFile(task.resultFile + ".error")(error).ignore
+    })
     _ <- logger.interrupt
   } yield success.collect { case Some(a) => a }.toList
 
@@ -128,7 +135,7 @@ object Controller {
     elapsed = now - begin
     _ <- reportUpdatedStatus(s"$elapsed seconds elaspsed, Current State: $printString")
     _ <-
-      if (states.nonEmpty && states.forall((_, state) => state == TaskState.Finished || state == TaskState.Failed) && elapsed > 2)
+      if (states.nonEmpty && states.forall((_, state) => state == TaskState.Finished || state == TaskState.Failed))
         putStr("\n").ignore *> ZIO.fail("")
       else ZIO.unit
   } yield ()

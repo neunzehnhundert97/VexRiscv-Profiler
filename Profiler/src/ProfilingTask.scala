@@ -27,13 +27,14 @@ final case class ProfilingTask(
     ref: Ref[Map[ProfilingTask, TaskState]],
     semProfile: Semaphore,
     semAnalyse: Semaphore
-  ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
+  ): ZIO[Blocking, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
-    (ref.update(_.updated(this, TaskState.Initial)) *> build(ref) *>
-      ref.update(_.updated(this, TaskState.ProfilingReady)) *> profile(fileName, ref, semProfile) *>
-      ref.update(_.updated(this, TaskState.AnalysisReady)) *> analyze(fileName, ref, semAnalyse) <*
-      ref.update(_.updated(this, TaskState.Finished)))
-      .ensuring(clean.ignore).tapError(_ => ref.update(_.updated(this, TaskState.Failed)))
+    (build(ref) *> ref.update(_.updated(this, TaskState.ProfilingReady))
+      *> profile(fileName, ref, semProfile) *> ref.update(_.updated(this, TaskState.AnalysisReady))
+      *> analyze(fileName, ref, semAnalyse) <* ref.update(_.updated(this, TaskState.Finished)))
+      .ensuring(clean.ignore)
+      .mapError(e => this -> e)
+      .tapError(_ => ref.update(_.updated(this, TaskState.Failed)))
 
   /** Build the exeutable. */
   def build(ref: Ref[Map[ProfilingTask, TaskState]]): ZIO[Blocking, String, Unit] = makeTarget match {
