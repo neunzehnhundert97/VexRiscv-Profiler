@@ -80,19 +80,18 @@ object Controller {
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- FiberRef.make[String -> TaskState]("" -> TaskState.Initial, fork = _ => ("", TaskState.Initial), join = (p, c) => p)
+    ref <- Ref.make[Map[ProfilingTask, TaskState]](Map())
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
     semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
     semAnalyse <- Semaphore.make(config.analysisThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
-    supervisor <- Supervisor.track(true)
 
     // Actual execution in parallel
-    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semProfile, semAnalyse)).supervised(supervisor).fork
+    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semProfile, semAnalyse)).fork
 
     // Start logging
     start <- currentTime(TimeUnit.SECONDS)
-    logger <- reportFibreStatus(supervisor, ref, start, tasks.length)
+    logger <- reportFibreStatus(ref, start, tasks.length)
       .repeat(Schedule.fixed(1.seconds)).ignore.fork
     _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
 
@@ -107,33 +106,31 @@ object Controller {
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
-    supervisor: Supervisor[Chunk[Fiber.Runtime[Any, Any]]],
-    ref: FiberRef[String -> TaskState],
+    ref: Ref[Map[ProfilingTask, TaskState]],
     begin: Long,
     tasks: Int
   ): ZIO[Clock & Console, String, Unit] = for {
     // Unwrap data
-    fibres <- supervisor.value
-    wrappedStates = fibres.map(_.getRef(ref))
-    states <- ZIO.collectAll(wrappedStates)
+    states <- ref.get
 
     // Count states
-    countedStates = states.filter(!_._1.isEmpty).foldLeft(Map[TaskState, Int]()) {
+    countedStates = states.foldLeft(Map[TaskState, Int]()) {
       case (map, (_, state)) =>
         map.updatedWith(state) {
           case None    => Some(1)
           case Some(c) => Some(c + 1)
         }
     }
-    finished = tasks - countedStates.map(_._2).sum
-    fullStates = if (finished > 0) countedStates.updated(TaskState.Finished, finished) else countedStates
-    printString = fullStates.toList.sortBy(_._1.ordinal).map((a, b) => s"$a [$b]").mkString(" ==> ")
+    printString = countedStates.toList.sortBy(_._1.ordinal).map((a, b) => s"$a [$b]").mkString(" ==> ")
 
     // Print status
     now <- currentTime(TimeUnit.SECONDS)
     elapsed = now - begin
     _ <- reportUpdatedStatus(s"$elapsed seconds elaspsed, Current State: $printString")
-    _ <- if (finished == tasks && elapsed > 2) putStr("\n").ignore *> ZIO.fail("") else ZIO.unit
+    _ <-
+      if (states.nonEmpty && states.forall((_, state) => state == TaskState.Finished || state == TaskState.Failed) && elapsed > 2)
+        putStr("\n").ignore *> ZIO.fail("")
+      else ZIO.unit
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */

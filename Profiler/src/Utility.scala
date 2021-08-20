@@ -53,7 +53,7 @@ def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String
   ).exitCode.discard
 
 enum TaskState {
-  case Initial, Building, Profiling, Analysing, Finished
+  case Initial, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
 }
 
 type ->[+A, +B] = Tuple2[A, B]
