@@ -25,7 +25,7 @@ final case class Config(
   prefix: Option[String],
   profileThreads: Option[Int],
   analysisThreads: Option[Int],
-  experimentalProfiling: Boolean
+  detailed: Boolean
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
@@ -74,7 +74,7 @@ object Config {
     val doAnalysis = args.contains("analyse") || args.contains("analyze") || args.contains("process")
     val doProfile = args.contains("profile") || args.contains("process")
     val doBenchmark = args.contains("benchmark")
-    val visualize = args.contains("graph") || args.contains("visualize")
+    val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
 
     // Reduce the number of versions in predefined tasks to profile
     val take = extractArgumentOption(args, "take", _.toInt)
@@ -111,7 +111,7 @@ object Config {
     val profileThreads = extractArgumentOption(args, "profileThreads", _.toInt)
     val analysisThreads = extractArgumentOption(args, "analysisThreads", _.toInt)
 
-    val experimentalProfiling = args.contains("experimentalProfiling")
+    val detailed = args.contains("detailed")
 
     // Put all in one object to ease passing around
     Config(
@@ -134,7 +134,7 @@ object Config {
       prefix,
       profileThreads,
       analysisThreads,
-      experimentalProfiling
+      detailed
     )
   }
 }

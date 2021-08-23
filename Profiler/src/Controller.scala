@@ -58,7 +58,7 @@ object Controller {
     // Create CLI tasks
     // TODO: Errror handling
     val manualTasks = for (file <- manualInputs)
-      yield ProfilingTask(file, file, "", config = config)
+      yield ProfilingTask("manual", file, file, "", config = config)
 
     // Create predefined tasks
     val predefinedTasks = config.predefinedTasks.flatMap(_.generateTasks(config))
@@ -155,7 +155,7 @@ object Controller {
     _ <- config.debuggedFunction.match {
       case None =>
         // Call profiler
-        if (!config.experimentalProfiling)
+        if (config.detailed)
           runForFileOutput(dataFile)(
             "./obj_dir/VVexRiscv",
             hexFile,

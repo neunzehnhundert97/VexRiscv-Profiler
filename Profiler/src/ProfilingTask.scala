@@ -8,6 +8,7 @@ import zio.blocking.Blocking
 
 /** Class to handle the profiling tasks at one place */
 final case class ProfilingTask(
+  group: String,
   name: String,
   file: String,
   version: String,
@@ -16,7 +17,8 @@ final case class ProfilingTask(
   variant: Option[Int] = None,
   config: Config
 ) {
-  def fileName = config.prepostfixed(file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse(""))
+  def fileName =
+    s"$group/${config.prepostfixed(file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse(""))}"
   def elfFile = s"${file.split(".hex").head}.elf"
   def dataFile = s"data/$fileName"
   def resultFile = s"results/$fileName"
@@ -46,7 +48,7 @@ final case class ProfilingTask(
           r <- runForReturn(
             "make",
             target,
-            s"INSTRUMENT_FUNCTIONS=${if (config.experimentalProfiling) "N" else "Y"}",
+            s"INSTRUMENT_FUNCTIONS=${if (config.detailed) "Y" else "N"}",
             s"VERSION=$version",
             config.profilerMakeFlags.mkString(" "),
             variant.map(v => s"VARIANT=$v").getOrElse("")

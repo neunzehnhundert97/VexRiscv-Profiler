@@ -63,11 +63,12 @@ final case class PredefinedTask(
     // Generate tasks
     if (config.variants.isEmpty)
       for (version <- selectedVersions)
-        yield ProfilingTask(s"$name $version", hexFile(version, ""), version, buildTarget, None, None, config)
+        yield ProfilingTask(name, s"$name $version", hexFile(version, ""), version, buildTarget, None, None, config)
     else
       for (version <- selectedVersions; variant <- config.variants)
         yield {
           ProfilingTask(
+            name,
             s"$name $version $variant",
             hexFile(version, variant.toString),
             version,
