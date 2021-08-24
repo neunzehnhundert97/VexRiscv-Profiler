@@ -73,16 +73,16 @@ object Config {
     // Boolean arguments
     val doAnalysis = args.contains("analyse") || args.contains("analyze") || args.contains("process")
     val doProfile = args.contains("profile") || args.contains("process")
-    val doBenchmark = args.contains("benchmark")
     val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
-
+    
     // Reduce the number of versions in predefined tasks to profile
     val take = extractArgumentOption(args, "take", _.toInt)
     val drop = extractArgumentOption(args, "drop", _.toInt)
     val select = extractArgumentOption(args, "select", _.split(",").map(_.toInt).toList).getOrElse(Nil)
-
+    
     // Variants for benchmarks
     val variants = extractArgumentOption(args, "variants", _.split(",").toList.map(_.toInt)).getOrElse(Nil)
+    val doBenchmark = args.contains("benchmark") || (variants.length > 1 && args.contains("process"))
 
     // Arguments for the instruction analysis
     val debuggedFunction = extractArgumentOption(args, "func")

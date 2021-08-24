@@ -33,7 +33,7 @@ object Main extends zio.App {
       |  help, -h, --h         : Display this help
       |  profile               : Perform the profiling
       |  analysis              : Perform a analysis
-      |  process               : Perform profiling and analysis with graphical output
+      |  process               : Perform profiling, analysis with graphical output, and benchmark if variants are given
       |  benchmark             : Perform a benchmark, only usefull with one target and variants
       |  visualize             : Create a graphical representation for the given analysis
       |  detailed              : Switches to the more detailed profiling mode with overhead
