@@ -68,8 +68,12 @@ object Analysis {
 
       // Generate graph
       _ <- ZIO.when(visualize)(
-        writeToFile(out + ".png")(generateDotGraph(callTreeData)) *> generateDotGraph(out + ".png", out + ".png")
-      ).mapError(_ => "Could not create graph image")
+        writeToFile(out + s".${config.imageFormat}")(generateDotGraph(callTreeData)) *> generateDotGraph(
+          out + s".${config.imageFormat}",
+          out + s".${config.imageFormat}",
+          config
+        )
+      ).mapError(e => s"Could not create graph image: $e")
     } yield callTreeData
   }
 
@@ -248,8 +252,8 @@ object Analysis {
   }
 
   /** Converts the given dotfile into an PNG image. Needs the executable "dot" to be present in PATH. */
-  def generateDotGraph(dotFile: String, imageFile: String): ZIO[Blocking, String, Unit] =
-    Command("dot", "-Tpng", imageFile, "-o", dotFile).exitCode.either.flatMap {
+  def generateDotGraph(dotFile: String, imageFile: String, config: Config): ZIO[Blocking, String, Unit] =
+    Command("dot", s"-T${config.imageFormat}", imageFile, "-o", dotFile).exitCode.either.flatMap {
       case Right(ExitCode.success) => ZIO.unit
       case _                       => ZIO.fail(s"Generation of dot graph failed")
     }

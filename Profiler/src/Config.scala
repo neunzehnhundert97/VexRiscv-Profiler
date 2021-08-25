@@ -26,7 +26,8 @@ final case class Config(
   prefix: Option[String],
   profileThreads: Option[Int],
   analysisThreads: Option[Int],
-  detailed: Boolean
+  detailed: Boolean,
+  imageFormat: String
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
@@ -113,7 +114,10 @@ object Config {
     val profileThreads = extractArgumentOption(args, "profileThreads", _.toInt)
     val analysisThreads = extractArgumentOption(args, "analysisThreads", _.toInt)
 
+    // Alternative profiling mode
     val detailed = args.contains("detailed")
+
+    val imageFormat = extractArgumentOption(args, "imageFormat").getOrElse("png")
 
     // Put all in one object to ease passing around
     Config(
@@ -137,7 +141,8 @@ object Config {
       prefix,
       profileThreads,
       analysisThreads,
-      detailed
+      detailed,
+      imageFormat
     )
   }
 }

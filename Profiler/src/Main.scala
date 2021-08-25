@@ -62,6 +62,7 @@ object Main extends zio.App {
       |Options for analysis
       |
       |  visualize              : Create a graphical representation for the given analysis
+      |  imageFormat            : Generates the callgraph in the given file extension. See the dot documentation for a list of formats.
       |  exclude=[name,name...] : Functions to be excluded from the call graph
       |  zoom=[name]            : Zooms to the specified function in the call graph and uses it as the new root
       |  analysisThreads=[n]    : Ensures maximal n threads are used for heavy analysis (default is the number of logical cores minus one)
