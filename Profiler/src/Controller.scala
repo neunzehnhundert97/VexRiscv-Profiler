@@ -68,7 +68,8 @@ object Controller {
     for {
       // Execute in parallel
       data <- if (doAnalysis || doProfile) executeTasks(tasks, config) else ZIO.succeed(Nil)
-      _ <- ZIO.when(doBenchmark)(benchmark(data, config))
+      _ <- ZIO.when(doBenchmark)(if (data.nonEmpty) benchmark(data, config)
+      else ZIO.fail("No benchmark possible as all tasks failed."))
         .catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
       _ <- ZIO.when(!doAnalysis && !doProfile && !doBenchmark)(reportStatus("No tasks to execute"))
     } yield ()
