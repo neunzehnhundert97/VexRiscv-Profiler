@@ -20,6 +20,7 @@ final case class Config(
   profilerMakeFlags: List[String],
   bootAt: String,
   exclude: List[String],
+  zoom: Option[String],
   predefinedTasks: List[PredefinedTask],
   postfix: Option[String],
   prefix: Option[String],
@@ -74,12 +75,12 @@ object Config {
     val doAnalysis = args.contains("analyse") || args.contains("analyze") || args.contains("process")
     val doProfile = args.contains("profile") || args.contains("process")
     val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
-    
+
     // Reduce the number of versions in predefined tasks to profile
     val take = extractArgumentOption(args, "take", _.toInt)
     val drop = extractArgumentOption(args, "drop", _.toInt)
     val select = extractArgumentOption(args, "select", _.split(",").map(_.toInt).toList).getOrElse(Nil)
-    
+
     // Variants for benchmarks
     val variants = extractArgumentOption(args, "variants", _.split(",").toList.map(_.toInt)).getOrElse(Nil)
     val doBenchmark = args.contains("benchmark") || (variants.length > 1 && args.contains("process"))
@@ -99,6 +100,7 @@ object Config {
 
     // A list of function names to exclude
     val exclude = extractArgumentOption(args, "exclude", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
+    val zoom = extractArgumentOption(args, "zoom")
 
     // Find calls to predefined tasks
     val customTasks = PredefinedTask.getTasksByNames(args.toList)
@@ -129,6 +131,7 @@ object Config {
       profilerMakeFlags,
       bootAt,
       exclude,
+      zoom,
       customTasks,
       postfix,
       prefix,

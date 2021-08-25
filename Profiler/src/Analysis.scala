@@ -77,7 +77,7 @@ object Analysis {
   def analyzeCallTree(tree: CallNode, symbols: Map[String, String], config: Config): CallTreeData = {
     import config.*
     // Build call tree
-    val rootNode = tree.cutOut(exclude)
+    val rootNode = config.zoom.flatMap(f => tree.zoom(f)).getOrElse(tree).cutOut(exclude)
     // Accumulate times
     val accData = rootNode.collectSum().map((a, b) => (a, b._1, b._2)).toList
 

@@ -69,6 +69,15 @@ final case class CallNode(
       )
     } else this
 
+  /** Zooms into the calltree to a certain function and returns it to be the new root node. */
+  def zoom(func: String): Option[CallNode] =
+    if (func == function)
+      Some(this)
+    else if (successors.nonEmpty)
+      successors.flatMap(_.zoom(func)).headOption
+    else
+      None
+
   /** Converts this node in a more compact representation */
   def compact: CallNode =
     if (successors.nonEmpty) {
