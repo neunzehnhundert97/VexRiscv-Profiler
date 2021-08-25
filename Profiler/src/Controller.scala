@@ -194,7 +194,10 @@ object Controller {
     // Get timing data from analysis result
     val extractedData = ZIO.collectAll(data.map {
       case task -> (data: CallTreeData)        => ZIO.succeed(task -> data._1.totalTime)
-      case task -> (data: GroupedInstructions) => ZIO.fail("Benchmark on low level analysis is not implemented")
+      case task -> (data: GroupedInstructions) =>
+        // Sum cycles in the debugged function
+        val cycles = data.find(_._1 == config.debuggedFunction.getOrElse("")).map(_._2.flatMap(_._2).sum.toLong)
+        ZIO.fromOption(cycles).mapError(_ => "Could not extract cycles number for benchmark").map(d => task -> d)
     })
 
     // Extract the clock cycles
@@ -225,12 +228,12 @@ object Controller {
       // Table for each version with variants compared
       val compareTables = for ((version, data) <- groupedByVersion)
         yield {
-          val sep = "+-----" + (("+" + "-" * 9) * numVariants) + "+\n"
-          val header = "| Var | " + groupedByVariant.map((v, _) => f"$v%7s").mkString(" | ") + " |\n"
+          val sep = "+-----" + (("+" + "-" * 11) * numVariants) + "+\n"
+          val header = "| Var | " + groupedByVariant.map((v, _) => f"$v%9s").mkString(" | ") + " |\n"
           val table = (for ((variant, value1) <- data)
             yield f"| $variant%3s | ${data.map((va, value2) =>
               if (value1 == -1 || value2 == -1) "   -   "
-              else f"${value1 * 100.0 / value2}%7.2f"
+              else f"${value1 * 100.0 / value2}%9.2f"
             ).mkString(" | ")}" + " |")
             .mkString("", "\n", "\n")
 
