@@ -358,9 +358,7 @@ object Analysis {
         // Do nothing besides pushing the counter value
         (queue, ctr :: stack, depth + 1)
       // Leaving a function
-      case ((queue, stack, depth), FunctionMeasurement(false, addr, ctr)) =>
-        // Pop last entry from stack
-        val (entry :: rest) = stack
+      case ((queue, entry :: rest, depth), FunctionMeasurement(false, addr, ctr)) =>
         // Get the nodes that are below the current function and the rest
         val (lower, higher) = queue.span(_.depth > depth)
         // Assemble new node
@@ -370,6 +368,7 @@ object Analysis {
           rest,
           depth - 1
         )
+      case _ => (Nil, Nil, -1)
     }._1.headOption
       // Rename the wrapper
       .map(n => if (n.function == "FFFFFFFF") n.copy(function = "Measurement Wrapper") else n)

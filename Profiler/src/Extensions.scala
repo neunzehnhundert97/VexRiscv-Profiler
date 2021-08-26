@@ -8,6 +8,19 @@ import scala.annotation.implicitNotFound
 extension (s: String) {
   def toLong(radix: Int): Long =
     java.lang.Long.parseLong(s, radix)
+
+  /** Pads a string to be centered. */
+  def centered(length: Int, filler: String = " "): String =
+    if (length < s.length)
+      s.substring(0, length)
+    else if ((length - s.length) % 2 == 0)
+      filler * ((length - s.length) / 2) + s + filler * ((length - s.length) / 2)
+    else
+      filler * ((length - s.length) / 2) + s + filler * (((length - s.length) / 2) + 1)
+
+  /** Alias for centered. */
+  def ^(length: Int): String =
+    centered(length)
 }
 
 extension [N: Numeric](list: List[N]) {

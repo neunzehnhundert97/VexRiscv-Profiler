@@ -215,12 +215,16 @@ object Controller {
         .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy(_._1)).toList.sortBy(_._1)
 
       // Build report
+      val maxVariantLength = groupedByVariant.map(_._1.length).max
       val numVersions = groupedByVersion.length
       val numVariants = groupedByVariant.length
-      val sep = "+-----" + (("+" + "-" * 15) * numVersions) + "+\n"
-      val header = "| Var | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
+      val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 15) * numVersions) + "+\n"
+      val header = "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
       val table = (for ((variant, data) <- groupedByVariant)
-        yield f"| $variant%3s | ${data.map(d => if (d._2 == -1) f"      -      " else f"${d._2}%13s").mkString(" | ")}" + " |")
+        yield s"| %${maxVariantLength}s | %s |".format(
+          variant,
+          data.map(d => if (d._2 == -1) "-" ^ 13 else f"${d._2}%13s").mkString(" | ")
+        ))
         .mkString("", "\n", "\n")
 
       // Table with all measurments
@@ -229,15 +233,17 @@ object Controller {
       // Table for each version with variants compared
       val compareTables = for ((version, data) <- groupedByVersion)
         yield {
-          val sep = "+-----" + (("+" + "-" * 11) * numVariants) + "+\n"
-          val header = "| Var | " + groupedByVariant.map((v, _) => f"$v%9s").mkString(" | ") + " |\n"
+          val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 11) * numVariants) + "+\n"
+          val header =
+            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _) => f"$v%9s").mkString(" | ") + " |\n"
           val table = (for ((variant, value1) <- data)
-            yield f"| $variant%3s | ${data.map((va, value2) =>
-              if (value1 == -1 || value2 == -1) "   -   "
-              else f"${value1 * 100.0 / value2}%9.2f"
-            ).mkString(" | ")}" + " |")
-            .mkString("", "\n", "\n")
-
+            yield s"| %${maxVariantLength}s | %s |".format(
+              variant,
+              data.map((va, value2) =>
+                if (value1 == -1 || value2 == -1) "-" ^ 7
+                else f"${value1 * 100.0 / value2}%9.2f"
+              ).mkString(" | ")
+            )).mkString("", "\n", "\n")
           s"$version\n" + sep + header + sep + table + sep
         }
 
