@@ -14,7 +14,7 @@ final case class ProfilingTask(
   version: String,
   makeTarget: Option[String] = None,
   cleanTarget: Option[String] = None,
-  variant: Option[Int] = None,
+  variant: Option[String] = None,
   config: Config
 ) {
   def fileName =

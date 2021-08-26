@@ -14,7 +14,7 @@ final case class Config(
   take: Option[Int],
   drop: Option[Int],
   select: List[Int],
-  variants: List[Int],
+  variants: List[String],
   debuggedFunction: Option[String],
   desiredCalls: Int,
   profilerMakeFlags: List[String],
@@ -83,7 +83,7 @@ object Config {
     val select = extractArgumentOption(args, "select", _.split(",").map(_.toInt).toList).getOrElse(Nil)
 
     // Variants for benchmarks
-    val variants = extractArgumentOption(args, "variants", _.split(",").toList.map(_.toInt)).getOrElse(Nil)
+    val variants = extractArgumentOption(args, "variants", _.split(",").toList).getOrElse(Nil)
     val doBenchmark = args.contains("benchmark") || (variants.length > 1 && args.contains("process"))
 
     // Arguments for the instruction analysis

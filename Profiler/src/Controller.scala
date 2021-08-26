@@ -205,12 +205,12 @@ object Controller {
     extractedData.map { data =>
 
       // Group data: Line / Variant => Column / Version => Data
-      val groupedByVariant: List[(Int, List[(String, Long)])] = data
+      val groupedByVariant: List[(String, List[(String, Long)])] = data
         .groupBy(_._1.variant.get)
         .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1)).toList.sortBy(_._1)
 
       // Group data: Version => Variant => Data
-      val groupedByVersion: List[(String, List[(Int, Long)])] = data
+      val groupedByVersion: List[(String, List[(String, Long)])] = data
         .groupBy(_._1.version)
         .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy(_._1)).toList.sortBy(_._1)
 
