@@ -120,9 +120,7 @@ object Analysis {
       (for ((func, total, totalRel, own, ownRel) <- relData.toList.sortBy(-_._4))
         yield f"| ${func}%-43s | ${total}%13d | ${totalRel * 100}%12.2f%% | ${own}%13d | ${ownRel * 100}%12.2f%% | ${own * 100.0 / total}%12.2f%% |")
         .mkString("\n") + s"\n\nOverall $totalTime cycles in ${accData.length} functions\n" +
-      s"Of these cycles between $minOverhead to $maxOverhead are caused by the measurement\n" +
-      f"The real cycle count is $estimatedCycles (${estimatedCycles * 100.0 / totalTime}%.02f%%) ± $derivation (${derivation * 100.0 / estimatedCycles}%.02f%%)%n" +
-      s"Created at ${dateFormat.format(date)} under revision $revision " +
+      s"Created at ${dateFormat.format(date)} under revision $revision\n" +
       s"Profiling data was measured at ${dateFormat.format(logDate)}\n"
   }
 
