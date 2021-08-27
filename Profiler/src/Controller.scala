@@ -195,10 +195,7 @@ object Controller {
     // Get timing data from analysis result
     val extractedData = ZIO.collectAll(data.map {
       case task -> (data: CallTreeData)        => ZIO.succeed(task -> data._1.totalTime)
-      case task -> (data: GroupedInstructions) =>
-        // Sum cycles in the debugged function
-        val cycles = data.find(_._1 == config.debuggedFunction.getOrElse("")).map(_._2.flatMap(_._2).sum.toLong)
-        ZIO.fromOption(cycles).mapError(_ => "Could not extract cycles number for benchmark").map(d => task -> d)
+      case task -> (data: GroupedInstructions) => ZIO.succeed(task -> data.map(_._2.map(_._2.sum.toLong).sum).sum)
     })
 
     // Extract the clock cycles
