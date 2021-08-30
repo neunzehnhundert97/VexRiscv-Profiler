@@ -17,11 +17,10 @@ final case class ProfilingTask(
   variant: Option[String] = None,
   config: Config
 ) {
-  def fileName =
-    s"$group/${config.prepostfixed(file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse(""))}"
+  def fileName = s"$group/${file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse("")}"
   def elfFile = s"${file.split(".hex").head}.elf"
-  def dataFile = s"data/$fileName"
-  def resultFile = s"results/$fileName"
+  def dataFile = s"data/${config.postfixed(fileName)}"
+  def resultFile = s"results/${config.prepostfixed(fileName)}"
 
   /** Perform the wanted actions. */
   def execute(

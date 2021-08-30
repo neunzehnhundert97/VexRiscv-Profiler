@@ -62,6 +62,20 @@ final case class Config(
       case Some(pre) => s"$pre/$postFixed"
     }
   }
+
+  def prefixed(name: String): String =
+    (debuggedFunction, postfix) match {
+      case (None, None)             => name
+      case (Some(func), None)       => s"$name-$func"
+      case (None, Some(post))       => s"$name-$post"
+      case (Some(func), Some(post)) => s"$name-$func-$post"
+    }
+
+  def postfixed(name: String): String =
+    prefix match {
+      case None      => name
+      case Some(pre) => s"$pre/$name"
+    }
 }
 
 object Config {
