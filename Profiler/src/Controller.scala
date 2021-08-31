@@ -201,15 +201,19 @@ object Controller {
     // Extract the clock cycles
     extractedData.map { data =>
 
+      val variantToIndex = config.variants.zipWithIndex.toMap
+
       // Group data: Line / Variant => Column / Version => Data
       val groupedByVariant: List[(String, List[(String, Long)])] = data
         .groupBy(_._1.variant.get)
-        .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1)).toList.sortBy(_._1)
+        .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1))
+        .toList.sortBy((v, _) => variantToIndex(v))
 
       // Group data: Version => Variant => Data
       val groupedByVersion: List[(String, List[(String, Long)])] = data
         .groupBy(_._1.version)
-        .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy(_._1)).toList.sortBy(_._1)
+        .map((key, value) => key -> value.map((t, data) => t.variant.get -> data).sortBy((v, _) => variantToIndex(v)))
+        .toList.sortBy(_._1)
 
       // Build report
       val maxVariantLength = groupedByVariant.map(_._1.length).max
