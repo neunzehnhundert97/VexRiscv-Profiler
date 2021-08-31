@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit
 import java.lang.{Runtime => JRuntime}
 
 import scala.compiletime.codeOf
+import scala.collection.immutable.SortedSet
+import scala.util.matching.Regex
 
 import better.files._
 
@@ -12,17 +14,13 @@ import zio.*
 import zio.console.*
 import zio.clock.*
 import zio.blocking.*
+import zio.blocking.Blocking.Service
 import zio.duration.*
-
-import zio.process.Command
+import zio.process.*
 
 import upickle.default.write
 
 import tasks.PredefinedTask
-import scala.collection.immutable.SortedSet
-import scala.util.matching.Regex
-import zio.process.CommandError
-import zio.blocking.Blocking.Service
 
 object Controller {
 
@@ -81,7 +79,7 @@ object Controller {
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- Ref.make[Map[ProfilingTask, TaskState]](tasks.map(_ -> TaskState.Initial).toMap)
+    ref <- Ref.make[Map[ProfilingTask, TaskState -> String]](tasks.map(_ -> (TaskState.Initial, "")).toMap)
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
     semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
@@ -114,7 +112,7 @@ object Controller {
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
-    ref: Ref[Map[ProfilingTask, TaskState]],
+    ref: Ref[Map[ProfilingTask, TaskState -> String]],
     begin: Long,
     tasks: Int
   ): ZIO[Clock & Console, String, Unit] = for {
@@ -123,7 +121,7 @@ object Controller {
 
     // Count states
     countedStates = states.foldLeft(Map[TaskState, Int]()) {
-      case (map, (_, state)) =>
+      case (map, (_, (state, _))) =>
         map.updatedWith(state) {
           case None    => Some(1)
           case Some(c) => Some(c + 1)
@@ -136,7 +134,7 @@ object Controller {
     elapsed = now - begin
     _ <- reportUpdatedStatus(s"$elapsed seconds elaspsed, Current State: $printString")
     _ <-
-      if (states.nonEmpty && states.forall((_, state) => state == TaskState.Finished || state == TaskState.Failed))
+      if (states.nonEmpty && states.forall((_, state) => state._1 == TaskState.Finished || state._1 == TaskState.Failed))
         putStr("\n").ignore *> ZIO.fail("")
       else ZIO.unit
   } yield ()

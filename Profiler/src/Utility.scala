@@ -52,7 +52,7 @@ def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String
     ProcessOutput.FileRedirect(new JFile(logFile))
   ).exitCode.discard
 
-enum TaskState {
+enum TaskState derives CanEqual {
   case Initial, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
 }
 
