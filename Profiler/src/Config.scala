@@ -31,7 +31,7 @@ final case class Config(
 ) {
 
   /** Verifies that this config was filled in a useful manner. */
-  def reportUselessConfig: IO[String, Unit] = {
+  def reportConfig: IO[String, String] = {
     if (!doProfile && !doAnalysis && !doBenchmark)
       IO.fail("Nothing to do, you should either profile or analyse.")
     else if (doBenchmark && variants.length <= 1)
@@ -44,26 +44,24 @@ final case class Config(
       IO.fail("A benchmark may currently only be conducted together with an analysis.")
     else if ((take.nonEmpty || drop.nonEmpty) && select.nonEmpty)
       IO.fail("Select can only be used without drop and take.")
-    else
-      IO.unit
-  }
+    else {
+      val actions =
+        (if (doProfile) List("profiling") else Nil) ++
+          (if (doAnalysis) List("analysis") else Nil) ++
+          (if (doBenchmark) List("benchmark") else Nil)
 
-  /** Add pre- and postfixes to the given string. */
-  def prepostfixed(name: String): String = {
-    val postFixed = (debuggedFunction, postfix) match {
-      case (None, None)             => name
-      case (Some(func), None)       => s"$name-$func"
-      case (None, Some(post))       => s"$name-$post"
-      case (Some(func), Some(post)) => s"$name-$func-$post"
-    }
-
-    prefix match {
-      case None      => postFixed
-      case Some(pre) => s"$pre/$postFixed"
+      IO.succeed(s"Conducting ${actions.mkString(", ")} on ${predefinedTasks.length + manualInputs.length} targets"
+        + ((prefix, postfix) match {
+          case None -> None            => ""
+          case Some(pre) -> None       => s"\nUsing prefix '$pre'"
+          case None -> Some(post)      => s"\nUsing pstfix '$post'"
+          case Some(pre) -> Some(post) => s"\nUsing prefix '$pre' and postfix '$post'"
+        })
+        + (if (doProfile) if (detailed) "\nProfiling in detailed mode" else "\nProfiling in normal mode" else ""))
     }
   }
 
-  def prefixed(name: String): String =
+  def postfixed(name: String): String =
     (debuggedFunction, postfix) match {
       case (None, None)             => name
       case (Some(func), None)       => s"$name-$func"
@@ -71,10 +69,10 @@ final case class Config(
       case (Some(func), Some(post)) => s"$name-$func-$post"
     }
 
-  def postfixed(name: String): String =
+  def prefixed(name: String): String =
     prefix match {
-      case None      => name
       case Some(pre) => s"$pre/$name"
+      case None      => name
     }
 }
 

@@ -13,7 +13,7 @@ import zio.process.{Command, ProcessOutput, CommandError, Process}
 
 /** Prints a blue status message to stdout. */
 def reportStatus(msg: String, reporter: String = "Profiler") =
-  putStrLn(Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
+  ZIO.collectAll(msg.split("\n").map(s => putStrLn(Console.BLUE + reporter + Console.RESET + ": " + s))).ignore
 
 /** Prints a blue status message to stdout. */
 def reportUpdatedStatus(msg: String, reporter: String = "Profiler") =

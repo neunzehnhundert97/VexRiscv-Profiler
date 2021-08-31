@@ -22,7 +22,7 @@ final case class ProfilingTask(
   def fileName = s"${file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse("")}"
   def elfFile = s"${file.split(".hex").head}.elf"
   def dataFile = s"data/$group/${config.postfixed(fileName)}"
-  def resultFile = s"results/$group/${config.prepostfixed(fileName)}"
+  def resultFile = s"results/$group/${config.prefixed(fileName)}"
 
   /** Perform the wanted actions. */
   def execute(

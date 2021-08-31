@@ -34,8 +34,8 @@ object Controller {
   def apply(args: Seq[String]): ZIO[Console & Blocking & Clock, String, Unit] = {
     val config = Config(args)
 
-    (config.reportUselessConfig *> buildProfiler(config) *> execute(config))
-      .catchAll(e => reportError(e))
+    ((config.reportConfig >>= (s => reportStatus(s, "Config"))) *> buildProfiler(config) *> execute(config))
+      .catchAll(e => reportError(e, "Config"))
   }
 
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
@@ -247,7 +247,7 @@ object Controller {
         }
 
       resultTable + "\n\n" + compareTables.mkString("\n")
-    } >>= writeToFile(s"results/${data.head._1.group}/${config.prepostfixed("Benchmark")}.txt")
+    } >>= writeToFile(s"results/${data.head._1.group}/${config.prefixed("Benchmark")}.txt")
   }
 
   /** Converts the symbol table into JSON and writes it in the data folder. */

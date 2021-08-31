@@ -47,7 +47,7 @@ object Main extends zio.App {
       |  take=[n]               : Takes only n items from each predefined task's list, take happens after drop
       |  drop=[n]               : Drops n items from each predefined task's list, drop happens before take
       |  select=[n[,n..]]       : Selects the given indices from each predefined task's list, not compatible with take or drop
-      |  postfix=[string]       : Appends the given string to every produced output file
+      |  postfix=[string]       : Appends the given string to every produced intermediate file, which does not include analysis results
       |
       |
       |Options for building/profiling
@@ -62,7 +62,7 @@ object Main extends zio.App {
       |
       |  visualize              : Create a graphical representation for the given analysis
       |  imageFormat            : Generates the callgraph in the given file extension. See the dot documentation for a list of formats.
-      |  prefix=[string]        : Puts all created files in the given subfolders in their respective location
+      |  prefix=[string]        : Puts all created analysis files in the given subfolder under their respective target
       |  exclude=[name,name...] : Functions to be excluded from the call graph
       |  zoom=[name]            : Zooms to the specified function in the call graph and uses it as the new root
       |  analysisThreads=[n]    : Ensures maximal n threads are used for heavy analysis (default is the number of logical cores minus one)
