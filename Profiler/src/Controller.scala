@@ -34,8 +34,8 @@ object Controller {
   def apply(args: Seq[String]): ZIO[Console & Blocking & Clock, String, Unit] = {
     val config = Config(args)
 
-    ((config.reportConfig >>= (s => reportStatus(s, "Config"))) *> buildProfiler(config) *> execute(config))
-      .catchAll(e => reportError(e, "Config"))
+    ((config.reportConfig >>= reportStatus("Config")) *> buildProfiler(config) *> execute(config))
+      .catchAll(reportError("Config"))
   }
 
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
@@ -43,7 +43,7 @@ object Controller {
     ZIO.when(config.doProfile) {
       // Invoke makefile to build profiler and request additional targets
       for {
-        _ <- reportStatus("Building verilator simulation")
+        _ <- reportStatus("Profiler")("Building verilator simulation")
         r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
           .mapError(e => s"The profiler could not be build: $e")
       } yield ()
@@ -68,8 +68,8 @@ object Controller {
       data <- if (doAnalysis || doProfile) executeTasks(tasks, config) else ZIO.succeed(Nil)
       _ <- ZIO.when(doBenchmark)(if (data.nonEmpty) benchmark(data, config)
       else ZIO.fail("No benchmark possible as all tasks failed."))
-        .catchAll(e => reportError(s"During benchmark, an error occurred: $e"))
-      _ <- ZIO.when(!doAnalysis && !doProfile && !doBenchmark)(reportStatus("No tasks to execute"))
+        .catchAll(e => reportError("Profiler")(s"During benchmark, an error occurred: $e"))
+      _ <- ZIO.when(!doAnalysis && !doProfile && !doBenchmark)(reportStatus("Profiler")("No tasks to execute"))
     } yield ()
   }
 
@@ -92,7 +92,7 @@ object Controller {
     start <- currentTime(TimeUnit.SECONDS)
     logger <- reportFibreStatus(ref, start, tasks.length)
       .repeat(Schedule.fixed(1.seconds)).ignore.fork
-    _ <- reportStatus(s"Start execution of ${tasks.length} tasks")
+    _ <- reportStatus("Profiler")(s"Start execution of ${tasks.length} tasks")
 
     // Wait for completion
     res <- (logger *> executor).join
@@ -102,9 +102,9 @@ object Controller {
     _ <- ZIO.collectAll(errors.map { (task, error) =>
       val lines = error.split("\n")
       if (lines.length == 1)
-        reportError(error, task.name)
+        reportError(task.name)(error)
       else
-        reportError(s"Error message with ${lines.length} lines was dumped to ${task.resultFile}.error", task.name)
+        reportError(task.name)(s"Error message with ${lines.length} lines was dumped to ${task.resultFile}.error")
           *> writeToFile(task.resultFile + ".error")(error).ignore
     })
     _ <- logger.interrupt
@@ -132,7 +132,7 @@ object Controller {
     // Print status
     now <- currentTime(TimeUnit.SECONDS)
     elapsed = now - begin
-    _ <- reportUpdatedStatus(s"$elapsed seconds elaspsed, Current State: $printString")
+    _ <- reportUpdatedStatus("Profiler")(s"$elapsed seconds elaspsed, Current State: $printString")
     _ <-
       if (states.nonEmpty && states.forall((_, state) => state._1 == TaskState.Finished || state._1 == TaskState.Failed))
         putStr("\n").ignore *> ZIO.fail("")

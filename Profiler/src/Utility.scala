@@ -12,19 +12,19 @@ import zio.blocking.{effectBlocking, blocking, Blocking}
 import zio.process.{Command, ProcessOutput, CommandError, Process}
 
 /** Prints a blue status message to stdout. */
-def reportStatus(msg: String, reporter: String = "Profiler") =
+def reportStatus(reporter: String)(msg: String) =
   ZIO.collectAll(msg.split("\n").map(s => putStrLn(Console.BLUE + reporter + Console.RESET + ": " + s))).ignore
 
 /** Prints a blue status message to stdout. */
-def reportUpdatedStatus(msg: String, reporter: String = "Profiler") =
+def reportUpdatedStatus(reporter: String)(msg: String) =
   putStr("\r\u001b[K" + Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
 
 /** Prints a red error message to stdout. */
-def reportError(msg: String, reporter: String = "Profiler") =
+def reportError(reporter: String)(msg: String) =
   putStrLn(Console.RED + reporter + Console.RESET + ": " + msg).ignore
 
 /** Prints a green success message to stdout. */
-def reportSuccess(msg: String, reporter: String = "Profiler") =
+def reportSuccess(reporter: String)(msg: String) =
   putStrLn(Console.GREEN + reporter + Console.RESET + ": " + msg).ignore
 
 /** Writes the given string into the given file. Currying for partial application. */

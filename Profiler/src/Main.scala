@@ -11,7 +11,7 @@ object Main extends zio.App {
 
   /** ZIO entry point */
   def run(args: List[String]) =
-    main(args).catchAll(e => reportError(s"Unhandled error occurred:\n$e")).exitCode
+    main(args).catchAll(e => reportError("Profiler")(s"Unhandled error occurred:\n$e")).exitCode
 
   def main(args: List[String]) =
     if (args.isEmpty || args.contains("help") || args.contains("-h") || args.contains("--h"))
@@ -21,7 +21,7 @@ object Main extends zio.App {
         start <- clock.currentTime(TimeUnit.SECONDS)
         _ <- Controller(args)
         end <- clock.currentTime(TimeUnit.SECONDS)
-        _ <- reportStatus(s"Done in ${end - start} seconds")
+        _ <- reportStatus("Profiler")(s"Done in ${end - start} seconds")
       } yield ()
 
   def printHelp =
