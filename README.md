@@ -170,3 +170,15 @@ an example to get you startet:
 Mnemonic;Pattern;Type
 ReadExtendedLower;0000000----------000-----0001011;R
 ```
+
+# Bibliography
+
+```
+@misc{vexriscv-profiler,
+  title = {{VexRiscv-Profiler}: A neasurement tool for the VexRiscv},
+  author = {Leon A. Becker},
+  note = {\url{https://github.com/neunzehnhundert97/VexRiscv-Profiler}}
+}
+```
+
+# License
