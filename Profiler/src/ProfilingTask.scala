@@ -17,6 +17,7 @@ final case class ProfilingTask(
   makeTarget: Option[String] = None,
   cleanTarget: Option[String] = None,
   variant: Option[String] = None,
+  preflight: Boolean = false,
   config: Config
 ) {
   def fileName = s"${file.split("/").last.split(".hex").head + variant.map(v => s"-V$v").getOrElse("")}"
@@ -32,12 +33,31 @@ final case class ProfilingTask(
     semAnalyse: Semaphore
   ): ZIO[Blocking, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
-    (build(ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
+    (preflighting(ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
       *> profile(fileName, ref, semProfile) *> setState(ref, TaskState.AnalysisReady)
       *> analyze(fileName, ref, semAnalyse) <* setState(ref, TaskState.Finished))
       .ensuring(clean.ignore)
       .mapError(e => this -> e)
       .tapError(_ => setState(ref, TaskState.Failed))
+
+  def preflighting(ref: Ref[Map[ProfilingTask, TaskState -> String]]) =
+    for {
+      result <- build(ref).either
+      _ <- result match {
+        // Handle preflight requirements
+        case Left(e) if preflight =>
+          val missingRequirements = e.split("\n").map(_.split("Missing: "))
+            .collect { case Array(_, info) => info }.toList.distinct
+          println(s"Missing $missingRequirements")
+          ZIO.fail(e)
+        // If no preflighting is wanted, just propagate the error
+        case Left(e) =>
+          ZIO.fail(e)
+        // A successful build requires no additonal actions
+        case Right(_) =>
+          ZIO.unit
+      }
+    } yield ()
 
   /** Build the exeutable. */
   def build(ref: Ref[Map[ProfilingTask, TaskState -> String]]): ZIO[Blocking, String, Unit] = makeTarget match {

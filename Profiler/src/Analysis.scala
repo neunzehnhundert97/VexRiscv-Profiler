@@ -101,19 +101,8 @@ object Analysis {
   def callGraphReport(data: CallTreeData, date: Date, logDate: Date, revision: String): String = {
     val (rootNode, accData, relData, callMap) = data
     val sumOfCalls = callMap.valuesIterator.flatMap(_.valuesIterator).map(_._1).sum
-    // At minimum, each instruction uses two instructions to signal entry and exit
-    // These instructions (csrw and csrwi) both take three cycles
-    // Additionally, an instructions needed to get the PC of the function and entry
-    // But this is not needed every time in case of inlined functions
-    val minOverhead = sumOfCalls * 3 * 2
-    val maxOverhead = sumOfCalls * (3 * 2 + 1)
-    // In truth, I don't know how much calls are actually inlined, and I won't bother finding out
-    // So the average is used
-    val avgOverhead = Math.round((minOverhead + maxOverhead) / 2.0)
 
     val totalTime = rootNode.totalTime
-    val estimatedCycles = totalTime - avgOverhead
-    val derivation = avgOverhead / 2
 
     // Create output string
     f"| ${"Function name"}%-43s | ${"Total abs"}%13s | ${"Total rel"}%13s | ${"Own abs"}%13s | ${"Own abs"}%13s | ${"Total/Own rel"}%13s |%n" +
