@@ -20,6 +20,8 @@ final case class Config(
   profilerMakeFlags: List[String],
   bootAt: String,
   exclude: List[String],
+  include: List[String],
+  threshold: Double,
   zoom: Option[String],
   predefinedTasks: List[PredefinedTask],
   postfix: Option[String],
@@ -113,6 +115,8 @@ object Config {
 
     // A list of function names to exclude
     val exclude = extractArgumentOption(args, "exclude", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
+    val include = extractArgumentOption(args, "include", _.split(",").map(_.toLowerCase).toList).getOrElse(Nil)
+    val threshold = extractArgumentOption(args, "threshold", _.toDoubleOption).flatten.getOrElse(0.05)
     val zoom = extractArgumentOption(args, "zoom")
 
     // Find calls to predefined tasks
@@ -147,6 +151,8 @@ object Config {
       profilerMakeFlags,
       bootAt,
       exclude,
+      include,
+      threshold,
       zoom,
       customTasks,
       postfix,

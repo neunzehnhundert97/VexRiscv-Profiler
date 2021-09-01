@@ -68,11 +68,8 @@ object Analysis {
 
       // Generate graph
       _ <- ZIO.when(visualize)(
-        writeToFile(out + s".${config.imageFormat}")(generateDotGraph(callTreeData)) *> generateDotGraph(
-          out + s".${config.imageFormat}",
-          out + s".${config.imageFormat}",
-          config
-        )
+        writeToFile(out + s".${config.imageFormat}")(generateDotGraph(callTreeData, config))
+          *> generateDotGraph(out + s".${config.imageFormat}", out + s".${config.imageFormat}", config)
       ).mapError(e => s"Could not create graph image: $e")
     } yield callTreeData
   }
@@ -211,7 +208,7 @@ object Analysis {
   }
 
   /** Create a callgraph using the dot language and write it to disk. */
-  def generateDotGraph(data: CallTreeData): String = {
+  def generateDotGraph(data: CallTreeData, config: Config): String = {
     val (root, _, timings, callMap) = data
     // Flatten call map
     val allCalls = callMap.values.toSeq.flatMap(_.toSeq).groupMapReduce(_._1)(_._2._1)(_ + _)
@@ -222,8 +219,8 @@ object Analysis {
 
     // Create nodes of the graph
     val nodes = timeMapping
-      // Take only functions with at least 5% runtime
-      .filter(_._2._2 > 0.05)
+      // Take only functions which are above the threshold
+      .filter(d => d._2._2 > config.threshold || config.include.exists(f => d._1.contains(f)))
       .map((func, data) =>
         f""""$func" [shape=box,label="$func\n${data._2 * 100}%4.2f%%\n(${data._4 * 100}%4.2f%%)${
           val calls = allCalls.getOrElse(func, 1L)
@@ -235,11 +232,11 @@ object Analysis {
 
     // Create edges of the graph
     val edges = callMap
-      // Take only functions with at least 5% runtime
-      .filter((func, _) => timeMapping(func)._2 > 0.05)
+      // Take only functions which are above the threshold
+      .filter((func, _) => timeMapping(func)._2 > config.threshold || config.include.exists(f => func.contains(f)))
       .map((caller, calles) =>
-        // Take only functions with at least 5% runtime
-        calles.filter(c => timeMapping(c._1)._2 > 0.05)
+        // Take only functions which are above the threshold
+        calles.filter(c => timeMapping(c._1)._2 > config.threshold || config.include.exists(f => c._1.contains(f)))
           .map((calle, count) => s""""$caller" -> "$calle" [label="${if (count._2 > 1) s"${count._2}x" else ""}"];""")
           .mkString("\n")
       )

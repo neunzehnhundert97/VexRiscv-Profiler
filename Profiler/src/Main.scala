@@ -64,6 +64,8 @@ object Main extends zio.App {
       |  imageFormat            : Generates the callgraph in the given file extension. See the dot documentation for a list of formats.
       |  prefix=[string]        : Puts all created analysis files in the given subfolder under their respective target
       |  exclude=[name,name...] : Functions to be excluded from the call graph
+      |  include=[name,name...] : Functions to be included even if they are below the threshold
+      |  threshold=[value]      : Sets the threshold under which node are ignored to the given value (default: 0.05)
       |  zoom=[name]            : Zooms to the specified function in the call graph and uses it as the new root
       |  analysisThreads=[n]    : Ensures maximal n threads are used for heavy analysis (default is the number of logical cores minus one)
       |
