@@ -5,10 +5,10 @@
 
 # Output files and folders
 out
-obj_dir
+obj_dir*
 data
 results
-VexRiscv.v
+VexRiscv*.v
 instructions_s.csv
 
 # Testing ground

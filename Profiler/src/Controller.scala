@@ -41,12 +41,19 @@ object Controller {
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
   def buildProfiler(config: Config): ZIO[Console & Blocking, String, Unit] =
     ZIO.when(config.doProfile) {
-      // Invoke makefile to build profiler and request additional targets
-      for {
-        _ <- reportStatus("Profiler")("Building verilator simulation")
-        r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
-          .mapError(e => s"The profiler could not be build: $e")
-      } yield ()
+      // Invoke makefile to build profiler and request additional targets for each variant
+      if (config.variants.isEmpty)
+        for {
+          _ <- reportStatus("Profiler")("Building verilator simulation")
+          r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
+            .mapError(e => s"The profiler could not be build: $e")
+        } yield ()
+      else
+        reportStatus("Profiler")("Building verilator simulation")
+          *> ZIO.foreachPar_(config.variants)(v =>
+            runForReturn("make", "all", config.profilerMakeFlags.mkString(" "), s"VARIANT=$v")
+              .mapError(e => s"The profiler could not be build: $e")
+          )
     }
 
   /** Executes all tasks in parallel. */
@@ -73,7 +80,7 @@ object Controller {
     } yield ()
   }
 
-  /** */
+  /** Handles the execution of all requested tasks. */
   def executeTasks(
     tasks: List[ProfilingTask],
     config: Config
@@ -140,7 +147,7 @@ object Controller {
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
+  def profile(hexFile: String, dataFile: String, config: Config, variant: Option[String]): ZIO[Blocking, String, Unit] = for {
     // Verify existence of files
     _ <- IO.when(!hexFile.endsWith("hex"))(IO.fail(s"The given file '$hexFile' has no .hex extension."))
     _ <- IO.effect(File(hexFile).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$hexFile' does not exist."))
@@ -150,13 +157,16 @@ object Controller {
     symbolTable <- makeSymbolTable(hexFile.replace(".hex", ".elf"))
     _ <- dumpSymbolTable(symbolTable, s"$dataFile-sym.json").mapError(e => s"Symbol table could not be dumped because: $e")
 
+    // Assemble the path to the simulation executable
+    executable = s"./obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
+
     // Do the actual profiling
     _ <- config.debuggedFunction.match {
       case None =>
         // Call profiler
         if (config.detailed)
           runForFileOutput(dataFile)(
-            "./obj_dir/VVexRiscv",
+            executable,
             hexFile,
             config.bootAt,
             "1"
@@ -164,7 +174,7 @@ object Controller {
         else
           runForFileOutput(dataFile)(
             (List(
-              "./obj_dir/VVexRiscv",
+              executable,
               hexFile,
               config.bootAt,
               "3"
@@ -177,7 +187,7 @@ object Controller {
           case Some(address -> _) =>
             // Call profiler
             runForFileOutput(dataFile)(
-              "./obj_dir/VVexRiscv",
+              executable,
               hexFile,
               config.bootAt,
               "2",

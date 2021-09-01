@@ -82,7 +82,7 @@ final case class ProfilingTask(
   /** Run the verilog simulation to create log data. */
   def profile(fileName: String, ref: Ref[Map[ProfilingTask, TaskState -> String]], sem: Semaphore): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
-      sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(file, dataFile, config))
+      sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(file, dataFile, config, variant))
     )
 
   /** Build the exeutable. */
