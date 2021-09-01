@@ -17,7 +17,7 @@ def reportStatus(reporter: String)(msg: String) =
 
 /** Prints a blue status message to stdout. */
 def reportUpdatedStatus(reporter: String)(msg: String) =
-  putStr("\r\u001b[K" + Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
+  putStr("\r\u001b[K\u001b[?7l" + Console.BLUE + reporter + Console.RESET + ": " + msg).ignore
 
 /** Prints a red error message to stdout. */
 def reportError(reporter: String)(msg: String) =
