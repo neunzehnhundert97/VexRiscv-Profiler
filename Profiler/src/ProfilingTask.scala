@@ -33,23 +33,25 @@ final case class ProfilingTask(
     semAnalyse: Semaphore
   ): ZIO[Blocking, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
-    (preflighting(ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
+    (preflighting(variant, semProfile, ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
       *> profile(fileName, ref, semProfile) *> setState(ref, TaskState.AnalysisReady)
       *> analyze(fileName, ref, semAnalyse) <* setState(ref, TaskState.Finished))
-      .ensuring(clean.ignore)
+      .ensuring(clean.ignore *> cleanPreflight.ignore)
       .mapError(e => this -> e)
       .tapError(_ => setState(ref, TaskState.Failed))
 
-  def preflighting(ref: Ref[Map[ProfilingTask, TaskState -> String]]) =
+  /** Performs an initial build request to let the program communicate dependencies on the used core. */
+  def preflighting(variant: Option[String], sem: Semaphore, ref: Ref[Map[ProfilingTask, TaskState -> String]]) =
     for {
-      result <- build(ref).either
+      _ <- ZIO.when(preflight && config.doPreflight)(setState(ref, TaskState.Preflight) *> cleanPreflight)
+      result <- build(sem, ref).either
       _ <- result match {
         // Handle preflight requirements
-        case Left(e) if preflight =>
+        case Left(e) if preflight && config.doPreflight =>
           val missingRequirements = e.split("\n").map(_.split("Missing: "))
             .collect { case Array(_, info) => info }.toList.distinct
-          println(s"Missing $missingRequirements")
-          ZIO.fail(e)
+
+          Controller.buildProfilerWithDeps(missingRequirements, variant.getOrElse(""), config) *> build(sem, ref)
         // If no preflighting is wanted, just propagate the error
         case Left(e) =>
           ZIO.fail(e)
@@ -60,7 +62,7 @@ final case class ProfilingTask(
     } yield ()
 
   /** Build the exeutable. */
-  def build(ref: Ref[Map[ProfilingTask, TaskState -> String]]): ZIO[Blocking, String, Unit] = makeTarget match {
+  def build(sem: Semaphore, ref: Ref[Map[ProfilingTask, TaskState -> String]]): ZIO[Blocking, String, Unit] = makeTarget match {
     case Some(target) =>
       // Proceed only when a make target exists and profiling is wanted
       ZIO.when(config.doProfile) {
@@ -105,7 +107,7 @@ final case class ProfilingTask(
       sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(file, dataFile, config, variant))
     )
 
-  /** Build the exeutable. */
+  /** Clean the exeutable. */
   def clean: ZIO[Blocking, String, Unit] = cleanTarget match {
     case Some(target) =>
       // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
@@ -117,7 +119,25 @@ final case class ProfilingTask(
             s"VERSION=$version",
             config.profilerMakeFlags.mkString(" "),
             variant.map(v => s"VARIANT=$v").getOrElse("")
-          ).mapError(e => s"The profiler could not be build: $e")
+          ).mapError(e => s"The executable could not be cleaned: $e")
+          _ <- ZIO.when(r._1 != 0)(ZIO.fail("Profiler returned non zero exit code."))
+        } yield ()
+      }
+    case None =>
+      ZIO.unit
+  }
+
+  def cleanPreflight: ZIO[Blocking, String, Unit] = cleanTarget match {
+    case Some(_) =>
+      // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
+      ZIO.when(config.doProfile) {
+        for {
+          r <- runForReturn(
+            "make",
+            "clean",
+            config.profilerMakeFlags.mkString(" "),
+            variant.map(v => s"VARIANT=$v").getOrElse("")
+          ).mapError(e => s"The profiler could not be cleaned: $e")
           _ <- ZIO.when(r._1 != 0)(ZIO.fail("Profiler returned non zero exit code."))
         } yield ()
       }

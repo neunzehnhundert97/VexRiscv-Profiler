@@ -53,6 +53,7 @@ object Main extends zio.App {
       |Options for building/profiling
       |
       |  detailed               : Switches to the more detailed profiling mode with overhead
+      |  preflight              : Use a preflight build to perform cuore customization
       |  profilerFlags=[flags]  : Flags that will be given to the profilers makefile
       |  bootAt=[address]       : Address to start execution at (default 80000000)
       |  profileThreads=[n]     : Ensures maximal n threads are used for profiling (default is the number of logical cores minus one)

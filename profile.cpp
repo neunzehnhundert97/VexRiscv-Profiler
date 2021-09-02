@@ -2194,7 +2194,7 @@ public:
 
 				currentTime = i;
 
-				//printf("PC: %08X %d\n", top->VexRiscv->lastStagePc, top->VexRiscv->lastStageIsFiring);
+				printf("PC: %08X %d\n", top->VexRiscv->lastStagePc, top->VexRiscv->lastStageIsFiring);
 
 				// Print trace for entering a function
 				if (profileMode != 3)

@@ -40,21 +40,26 @@ object Controller {
 
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
   def buildProfiler(config: Config): ZIO[Console & Blocking, String, Unit] =
-    ZIO.when(config.doProfile) {
+    ZIO.when(config.doProfile && !config.doPreflight) {
       // Invoke makefile to build profiler and request additional targets for each variant
-      if (config.variants.isEmpty)
-        for {
-          _ <- reportStatus("Profiler")("Building verilator simulation")
-          r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
-            .mapError(e => s"The profiler could not be build: $e")
-        } yield ()
-      else
-        reportStatus("Profiler")("Building verilator simulation")
-          *> ZIO.foreachPar_(config.variants)(v =>
-            runForReturn("make", "all", config.profilerMakeFlags.mkString(" "), s"VARIANT=$v")
-              .mapError(e => s"The profiler could not be build: $e")
-          )
+      for {
+        _ <- reportStatus("Profiler")("Building verilator simulation")
+        r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
+          .mapError(e => s"The profiler could not be build: $e")
+      } yield ()
     }
+
+  /** */
+  def buildProfilerWithDeps(deps: List[String], variant: String, config: Config) =
+    runForReturn(
+      "make",
+      "clean",
+      "all",
+      config.profilerMakeFlags.mkString(" "),
+      s"VARIANT=$variant",
+      "PREFLIGHT=Y",
+      s"DEPENDENCIES=${deps.mkString(":")}"
+    ).mapError(e => s"The profiler could not be build: $e")
 
   /** Executes all tasks in parallel. */
   def execute(config: Config): URIO[Console & Blocking & Clock, Unit] = {
@@ -158,7 +163,9 @@ object Controller {
     _ <- dumpSymbolTable(symbolTable, s"$dataFile-sym.json").mapError(e => s"Symbol table could not be dumped because: $e")
 
     // Assemble the path to the simulation executable
-    executable = s"./obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
+    executable =
+      if (config.doPreflight) s"./obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
+      else "./obj_dir/VVexRiscv"
 
     // Do the actual profiling
     _ <- config.debuggedFunction.match {
