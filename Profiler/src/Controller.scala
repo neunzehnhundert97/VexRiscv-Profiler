@@ -94,11 +94,12 @@ object Controller {
     ref <- Ref.make[Map[ProfilingTask, TaskState -> String]](tasks.map(_ -> (TaskState.Initial, "")).toMap)
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
+    semBuild <- Semaphore.make(JRuntime.getRuntime().availableProcessors() >> 1 - 1)
     semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
     semAnalyse <- Semaphore.make(config.analysisThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
 
     // Actual execution in parallel
-    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semProfile, semAnalyse)).fork
+    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semBuild, semProfile, semAnalyse)).fork
 
     // Start logging
     start <- currentTime(TimeUnit.SECONDS)
