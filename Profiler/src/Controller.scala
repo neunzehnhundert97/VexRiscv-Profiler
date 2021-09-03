@@ -93,7 +93,7 @@ object Controller {
     countDown <- CountDownLatch.make(tasks.length)
 
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- Ref.make[SharedState](SharedState(tasks.map(_ -> TaskInformation(countDown = countDown)).toMap))
+    ref <- Ref.make[SharedState](SharedState(tasks.map(_ -> TaskInformation()).toMap, TaskCommon(countDown = countDown)))
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
     semBuild <- Semaphore.make(JRuntime.getRuntime().availableProcessors() >> 1 - 1)

@@ -46,23 +46,37 @@ final case class ProfilingTask(
     val wantsPreflight = config.doPreflight && preflight
     for {
       _ <- ZIO.when(wantsPreflight)(setState(ref, TaskState.Preflight) *> cleanPreflight).ignore
-      result <- build(wantsPreflight, ref).either
+      result <- build(wantsPreflight, None, ref).either
       _ <- result match {
         // Handle preflight requirements
         case Left(e) if wantsPreflight =>
           val missingRequirements = e.split("\n").map(_.split("Missing: "))
-            .collect { case Array(_, info) => info }.toList.distinct
+            .collect { case Array(_, info) => info }.toList.distinct.sorted
 
-          val coreString = s"cores/${variant.get}+${missingRequirements.mkString(":")}"
-          constructSpecializedCores(sem, ref, coreString)
+          ref.update(s =>
+            s.copy(individual =
+              s.individual.updatedWithDefault(
+                this,
+                TaskInformation(depHash = missingRequirements.##.abs.toString),
+                _.copy(depHash = missingRequirements.##.abs.toString)
+              )
+            )
+          ) *> prepareCoreConstruction(sem, ref, missingRequirements)
 
         // If no preflighting is wanted, just propagate the error
         case Left(e) =>
           ZIO.fail(e)
         // A successful build requires no additonal actions
         case Right(_) if wantsPreflight =>
-          val coreString = s"cores/${variant.get}+"
-          constructSpecializedCores(sem, ref, coreString)
+          ref.update(s =>
+            s.copy(individual =
+              s.individual.updatedWithDefault(
+                this,
+                TaskInformation(depHash = Nil.##.abs.toString),
+                _.copy(depHash = Nil.##.abs.toString)
+              )
+            )
+          ) *> prepareCoreConstruction(sem, ref, Nil)
         case Right(_) =>
           ZIO.unit
       }
@@ -70,31 +84,38 @@ final case class ProfilingTask(
   }
 
   /** Build a custom core for every variant. */
-  def constructSpecializedCores(sem: Semaphore, ref: SharedRef, coreString: String) = for {
+  def prepareCoreConstruction(sem: Semaphore, ref: SharedRef, reqs: List[String]) = for {
     // Put dependencies into the mapping
-    _ <- ref.update(s =>
+    shared <- ref.updateAndGet(s =>
       s.copy(individual =
-        s.individual.updatedWithDefault(this, TaskInformation(dependencies = coreString), _.copy(dependencies = coreString)))
+        s.individual.updatedWithDefault(this, TaskInformation(dependencies = reqs), _.copy(dependencies = reqs)))
     )
 
     // Wait until all variants commited there needs and then build all at once
-    shared <- ref.get
     map = shared.individual
-    _ <- map(this).countDown.awaitForEffect(
-      runForReturn(
-        "make",
-        "allCores",
-        s"CORE_INSTRUCTION=${map.values.map(_.dependencies).mkString(" ")}"
-      ).ignore
-    )
+    _ <- shared.common.countDown.awaitForEffect(constructCores(sem, ref))
 
     // Build profiler and executable
     _ <- setState(ref, TaskState.Building)
-    _ <- sem.withPermit(Controller.buildProfilerWithDeps(variant.getOrElse(""), config) <&> build(true, ref))
+    _ <- build(true, Some(reqs.##.abs.toString), ref)
+  } yield ()
+
+  def constructCores(sem: Semaphore, ref: SharedRef) = for {
+    shared <- ref.get
+    map = shared.individual
+    deps = map.values.map(_.dependencies).toList.distinct
+    // Build cores
+    _ <- runForReturn(
+      "make",
+      "allCores",
+      s"CORE_INSTRUCTION=${deps.map(l => s"cores/${l.##.abs}+${l.mkString(":")}").mkString(" ")}"
+    ).ignore
+    // Build profiler
+    _ <- ZIO.foreachPar_(deps)(d => sem.withPermit(Controller.buildProfilerWithDeps(d.##.abs.toString, config))).ignore
   } yield ()
 
   /** Build the exeutable. */
-  def build(preflight: Boolean, ref: SharedRef): ZIO[Blocking, String, Unit] =
+  def build(preflight: Boolean, depHash: Option[String], ref: SharedRef): ZIO[Blocking, String, Unit] =
     makeTarget match {
       case Some(target) =>
         // Proceed only when a make target exists and profiling is wanted
@@ -108,7 +129,8 @@ final case class ProfilingTask(
               s"VERSION=$version",
               (if (preflight) "PREFLIGHT=Y" else ""),
               config.profilerMakeFlags.mkString(" "),
-              variant.map(v => s"VARIANT=$v").getOrElse("")
+              variant.map(v => s"VARIANT=$v").getOrElse(""),
+              depHash.map(v => s"DEP_HASH=$v").getOrElse("")
             ).mapError(e => s"The executable could not be build: $e")
             (code, out, error) = r
             _ <- ZIO.when(code != 0)(ZIO.fail(s"The executable could not be build: \nStdout:\n$out\nStderr:\n$error"))
@@ -137,7 +159,23 @@ final case class ProfilingTask(
   /** Run the verilog simulation to create log data. */
   def profile(fileName: String, ref: SharedRef, sem: Semaphore): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
-      sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(file, dataFile, config, variant))
+      if (preflight && config.doPreflight) for {
+        shared <- ref.get
+        hash = shared.individual(this).depHash
+        _ <- sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(
+          file,
+          dataFile,
+          config,
+          Some(hash)
+        ))
+      } yield ()
+      else
+        sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(
+          file,
+          dataFile,
+          config,
+          variant
+        ))
     )
 
   /** Clean the exeutable. */
@@ -160,6 +198,7 @@ final case class ProfilingTask(
       ZIO.unit
   }
 
+  /** Clean the build files for this specific preflight build. */
   def cleanPreflight: ZIO[Blocking, String, Unit] = cleanTarget match {
     case Some(_) =>
       // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
@@ -205,12 +244,12 @@ type SharedRef = Ref[SharedState]
 final case class SharedState(individual: Map[ProfilingTask, TaskInformation], common: TaskCommon = TaskCommon())
 
 /** Information for / over all tasks. */
-final case class TaskCommon()
+final case class TaskCommon(countDown: CountDownLatch = null)
 
 /** Information for a individual task. */
 final case class TaskInformation(
   state: TaskState = TaskState.Initial,
   elfHash: String = "",
-  dependencies: String = "",
-  countDown: CountDownLatch = null
+  coreHash: String = "",
+  dependencies: List[String] = Nil
 )
