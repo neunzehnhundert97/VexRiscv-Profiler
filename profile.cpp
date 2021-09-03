@@ -2194,7 +2194,7 @@ public:
 
 				currentTime = i;
 
-				printf("PC: %08X %d\n", top->VexRiscv->lastStagePc, top->VexRiscv->lastStageIsFiring);
+				//printf("PC: %08X %d\n", top->VexRiscv->lastStagePc, top->VexRiscv->lastStageIsFiring);
 
 				// Print trace for entering a function
 				if (profileMode != 3)
@@ -2351,6 +2351,7 @@ public:
 			staticMutex.lock();
 			cycles += instanceCycles;
 			staticMutex.unlock();
+			printf("CAUSE: %d\n", top->VexRiscv->CsrPlugin_mcause_exceptionCode);
 			failed = true;
 		}
 

@@ -50,15 +50,13 @@ object Controller {
     }
 
   /** */
-  def buildProfilerWithDeps(deps: List[String], variant: String, config: Config) =
+  def buildProfilerWithDeps(variant: String, config: Config) =
     runForReturn(
       "make",
-      "clean",
       "all",
       config.profilerMakeFlags.mkString(" "),
       s"VARIANT=$variant",
-      "PREFLIGHT=Y",
-      s"DEPENDENCIES=${deps.mkString(":")}"
+      "PREFLIGHT=Y"
     ).mapError(e => s"The profiler could not be build: $e")
 
   /** Executes all tasks in parallel. */
@@ -90,8 +88,12 @@ object Controller {
     tasks: List[ProfilingTask],
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
+
+    // Prepare a count down latch in pieces
+    countDown <- CountDownLatch.make(tasks.length)
+
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- Ref.make[Map[ProfilingTask, TaskState -> String]](tasks.map(_ -> (TaskState.Initial, "")).toMap)
+    ref <- Ref.make[SharedState](SharedState(tasks.map(_ -> TaskInformation(countDown = countDown)).toMap))
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
     semBuild <- Semaphore.make(JRuntime.getRuntime().availableProcessors() >> 1 - 1)
@@ -125,17 +127,18 @@ object Controller {
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
-    ref: Ref[Map[ProfilingTask, TaskState -> String]],
+    ref: SharedRef,
     begin: Long,
     tasks: Int
   ): ZIO[Clock & Console, String, Unit] = for {
     // Unwrap data
-    states <- ref.get
+    shared <- ref.get
+    states = shared.individual
 
     // Count states
     countedStates = states.foldLeft(Map[TaskState, Int]()) {
-      case (map, (_, (state, _))) =>
-        map.updatedWith(state) {
+      case (map, (_, info)) =>
+        map.updatedWith(info.state) {
           case None    => Some(1)
           case Some(c) => Some(c + 1)
         }
@@ -165,8 +168,8 @@ object Controller {
 
     // Assemble the path to the simulation executable
     executable =
-      if (config.doPreflight) s"./obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
-      else "./obj_dir/VVexRiscv"
+      if (config.doPreflight) s"./verilator/obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
+      else "./verilator/obj_dir/VVexRiscv"
 
     // Do the actual profiling
     _ <- config.debuggedFunction.match {

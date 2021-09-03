@@ -3,7 +3,7 @@ package profiler
 
 import java.util.concurrent.TimeUnit
 
-import zio.{IO, UIO, ZIO, URIO, clock, Ref, Semaphore}
+import zio.{IO, UIO, ZIO, URIO, clock, Ref, Semaphore, Promise}
 import zio.blocking.Blocking
 
 import better.files.File
@@ -28,7 +28,7 @@ final case class ProfilingTask(
   /** Perform the wanted actions. */
   def execute(
     config: Config,
-    ref: Ref[Map[ProfilingTask, TaskState -> String]],
+    ref: SharedRef,
     semBuild: Semaphore,
     semProfile: Semaphore,
     semAnalyse: Semaphore
@@ -42,34 +42,59 @@ final case class ProfilingTask(
       .tapError(_ => setState(ref, TaskState.Failed))
 
   /** Performs an initial build request to let the program communicate dependencies on the used core. */
-  def preflighting(variant: Option[String], sem: Semaphore, ref: Ref[Map[ProfilingTask, TaskState -> String]]) =
-    sem.withPermit(
-      for {
-        _ <- ZIO.when(preflight && config.doPreflight)(setState(ref, TaskState.Preflight) *> cleanPreflight).ignore
-        result <- build(preflight && config.doPreflight, ref).either
-        _ <- result match {
-          // Handle preflight requirements
-          case Left(e) if preflight && config.doPreflight =>
-            val missingRequirements = e.split("\n").map(_.split("Missing: "))
-              .collect { case Array(_, info) => info }.toList.distinct
+  def preflighting(variant: Option[String], sem: Semaphore, ref: SharedRef) = {
+    val wantsPreflight = config.doPreflight && preflight
+    for {
+      _ <- ZIO.when(wantsPreflight)(setState(ref, TaskState.Preflight) *> cleanPreflight).ignore
+      result <- build(wantsPreflight, ref).either
+      _ <- result match {
+        // Handle preflight requirements
+        case Left(e) if wantsPreflight =>
+          val missingRequirements = e.split("\n").map(_.split("Missing: "))
+            .collect { case Array(_, info) => info }.toList.distinct
 
-            sem.withPermit(Controller.buildProfilerWithDeps(missingRequirements, variant.getOrElse(""), config)
-              *> build(preflight && config.doPreflight, ref))
+          val coreString = s"cores/${variant.get}+${missingRequirements.mkString(":")}"
+          constructSpecializedCores(sem, ref, coreString)
 
-          // If no preflighting is wanted, just propagate the error
-          case Left(e) =>
-            ZIO.fail(e)
-          // A successful build requires no additonal actions
-          case Right(_) if preflight && config.doPreflight =>
-            Controller.buildProfilerWithDeps(Nil, variant.getOrElse(""), config)
-          case Right(_) =>
-            ZIO.unit
-        }
-      } yield ()
+        // If no preflighting is wanted, just propagate the error
+        case Left(e) =>
+          ZIO.fail(e)
+        // A successful build requires no additonal actions
+        case Right(_) if wantsPreflight =>
+          val coreString = s"cores/${variant.get}+"
+          constructSpecializedCores(sem, ref, coreString)
+        case Right(_) =>
+          ZIO.unit
+      }
+    } yield ()
+  }
+
+  /** Build a custom core for every variant. */
+  def constructSpecializedCores(sem: Semaphore, ref: SharedRef, coreString: String) = for {
+    // Put dependencies into the mapping
+    _ <- ref.update(s =>
+      s.copy(individual =
+        s.individual.updatedWithDefault(this, TaskInformation(dependencies = coreString), _.copy(dependencies = coreString)))
     )
 
+    // Wait until all variants commited there needs and then build all at once
+    shared <- ref.get
+    map = shared.individual
+    _ <- map(this).countDown.awaitForEffect(
+      runForReturn(
+        "make",
+        "allCores",
+        s"CORE_INSTRUCTION=${map.values.map(_.dependencies).mkString(" ")}"
+      ).ignore
+    )
+
+    // Build profiler and executable
+    _ <- setState(ref, TaskState.Building)
+    _ <- sem.withPermit(Controller.buildProfilerWithDeps(variant.getOrElse(""), config) <&> build(true, ref))
+  } yield ()
+
   /** Build the exeutable. */
-  def build(preflight: Boolean, ref: Ref[Map[ProfilingTask, TaskState -> String]]): ZIO[Blocking, String, Unit] =
+  def build(preflight: Boolean, ref: SharedRef): ZIO[Blocking, String, Unit] =
     makeTarget match {
       case Some(target) =>
         // Proceed only when a make target exists and profiling is wanted
@@ -94,14 +119,13 @@ final case class ProfilingTask(
     }
 
   /** Computes the hash of the given file and verify that it is currently unique. */
-  def recordAndCheckHash(ref: Ref[Map[ProfilingTask, TaskState -> String]]): ZIO[Blocking, String, Unit] =
+  def recordAndCheckHash(ref: SharedRef): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(for {
       hash <- ZIO.effect(File(file).sha512).mapError(_ => ())
-      mapping <- ref.getAndUpdate(_.updatedWith(this) {
-        case None         => Some(TaskState.Initial -> hash)
-        case Some(s -> h) => Some(s -> hash)
-      })
-      lookAlikes = mapping.filter((_, d) => d._2 == hash).map(_._1)
+      shared <- ref.getAndUpdate(s =>
+        s.copy(individual = s.individual.updatedWithDefault(this, TaskInformation(elfHash = hash), _.copy(elfHash = hash)))
+      )
+      lookAlikes = shared.individual.filter((_, d) => d._2 == hash).map(_._1)
       _ <- ZIO.when(lookAlikes.nonEmpty)(
         ZIO.fail(s"Other variants (${lookAlikes.mkString(", ")}) have the same hash, this one is therefore stopped")
       )
@@ -111,7 +135,7 @@ final case class ProfilingTask(
     }
 
   /** Run the verilog simulation to create log data. */
-  def profile(fileName: String, ref: Ref[Map[ProfilingTask, TaskState -> String]], sem: Semaphore): ZIO[Blocking, String, Unit] =
+  def profile(fileName: String, ref: SharedRef, sem: Semaphore): ZIO[Blocking, String, Unit] =
     ZIO.when(config.doProfile)(
       sem.withPermit(setState(ref, TaskState.Profiling) *> Controller.profile(file, dataFile, config, variant))
     )
@@ -157,7 +181,7 @@ final case class ProfilingTask(
   /** Analyze the gathered data. */
   def analyze(
     fileName: String,
-    ref: Ref[Map[ProfilingTask, TaskState -> String]],
+    ref: SharedRef,
     sem: Semaphore
   ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
     if (config.doAnalysis)
@@ -166,12 +190,27 @@ final case class ProfilingTask(
     else
       ZIO.none
 
-  def setState(ref: Ref[Map[ProfilingTask, TaskState -> String]], state: TaskState): UIO[Unit] =
-    ref.update(_.updatedWith(this) {
-      case None         => Some(state -> "")
-      case Some(s -> h) => Some(state -> h)
-    })
+  def setState(ref: SharedRef, state: TaskState): UIO[Unit] =
+    ref.update(s =>
+      s.copy(individual = s.individual.updatedWithDefault(this, TaskInformation(state = state), _.copy(state = state)))
+    )
 
   override def toString: String =
     s"[ProfilingTask $name]"
 }
+
+type SharedRef = Ref[SharedState]
+
+/** Runtime information shared between all states and the supervisor. */
+final case class SharedState(individual: Map[ProfilingTask, TaskInformation], common: TaskCommon = TaskCommon())
+
+/** Information for / over all tasks. */
+final case class TaskCommon()
+
+/** Information for a individual task. */
+final case class TaskInformation(
+  state: TaskState = TaskState.Initial,
+  elfHash: String = "",
+  dependencies: String = "",
+  countDown: CountDownLatch = null
+)

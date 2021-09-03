@@ -56,4 +56,27 @@ enum TaskState derives CanEqual {
   case Initial, Preflight, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
 }
 
+class CountDownLatch private (counter: Ref[Int], promise: Promise[Nothing, Unit]) {
+
+  /** Counts one down and waits for completion */
+  def await = for {
+    count <- counter.updateAndGet(_ - 1)
+    _ <- if (count > 0) promise.await else promise.succeed(())
+  } yield ()
+
+  /** Counts one down and waits for completion. Additionally, the fiber hitting zero performs a given effect before releasing. */
+  def awaitForEffect[R](e: ZIO[R, Nothing, Any]) = for {
+    count <- counter.updateAndGet(_ - 1)
+    _ <- if (count > 0) promise.await else e *> promise.succeed(())
+  } yield ()
+}
+
+object CountDownLatch {
+  def make(number: Int) = for {
+    counter <- Ref.make(number)
+    promise <- Promise.make[Nothing, Unit]
+  } yield new CountDownLatch(counter, promise)
+
+}
+
 type ->[+A, +B] = Tuple2[A, B]

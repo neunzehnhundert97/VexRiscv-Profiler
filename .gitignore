@@ -5,7 +5,7 @@
 
 # Output files and folders
 out
-obj_dir*
+verilator
 data
 results
 VexRiscv*.v
@@ -16,3 +16,5 @@ cores
 # Testing ground
 Tests
 Scripts
+
+MyMakefile.mk

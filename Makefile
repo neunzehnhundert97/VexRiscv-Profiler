@@ -5,6 +5,9 @@ IBUS_DATA_WIDTH?=32
 DBUS?=CACHED
 DBUS_DATA_WIDTH?=32
 THREAD_COUNT?=$(shell nproc)
+MEASUREMENTS?=N
+
+include MyMakefile.mk
 
 ADDCFLAGS += -CFLAGS -DREGRESSION_PATH='\"$(REGRESSION_PATH)/\"'
 ADDCFLAGS += -CFLAGS -DIBUS_${IBUS}
@@ -20,28 +23,45 @@ ADDCFLAGS += -CFLAGS -DTHREAD_COUNT=${THREAD_COUNT}
 ADDCFLAGS += -CFLAGS -DSTALL=1
 ADDCFLAGS += -CFLAGS -O3
 
-ifeq ($(VARIANT),)
+ifneq ($(SHOWPC),)
+ADDCFLAGS += -CFLAGS -DSHOWPC=1
+endif
+
+ifeq ($(VARIANT)$(PREFLIGHT),)
 DIR:=obj_dir
 TARGET_CORE:=VexRiscv.v
 else
 DIR:=obj_dir_$(VARIANT)
-TARGET_CORE:=VexRiscv_$(VARIANT).v
+TARGET_CORE:=cores/$(VARIANT)/VexRiscv.v
+endif
+
+ifeq ($(PREFLIGHT),)
+ADD_INCLUDE :=
+else
+ADD_INCLUDE :=../../Profiling/cores/$(VARIANT)
 endif
 
 
-all: $(DIR)/VVexRiscv
+all: verilator/$(DIR)/VVexRiscv | folder
 
-$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp
+folder:
+	mkdir -p cores/$(VARIANT)
+	mkdir -p verilator
+	touch cores/$(VARIANT)/instructions_c.h
+	touch cores/$(VARIANT)/instructions.py
+
+verilator/$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp
 	cp ${TARGET_CORE}*.bin . | true
-	verilator -cc -Mdir $(DIR) ${TARGET_CORE} --prefix VVexRiscv -O3 -CFLAGS -std=c++11 -LDFLAGS -pthread ${ADDCFLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH  --exe profile.cpp --x-assign unique
+	verilator -cc -Mdir verilator/$(DIR) ${TARGET_CORE} --prefix VVexRiscv -O3 -CFLAGS -std=c++11 -LDFLAGS -pthread ${ADDCFLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH  --exe ../profile.cpp --x-assign unique
 
-$(DIR)/VVexRiscv: $(DIR)/VVexRiscv.cpp
-	$(MAKE)  -j${THREAD_COUNT} -C $(DIR)/ -f VVexRiscv.mk VVexRiscv
+verilator/$(DIR)/VVexRiscv: verilator/$(DIR)/VVexRiscv.cpp
+	$(MAKE)  -j${THREAD_COUNT} -C verilator/$(DIR)/ -f VVexRiscv.mk VVexRiscv
 
-$(TARGET_CORE): VexRiscv.v
-	cp $^ $@
+allCores:
+	java -jar Trinity.jar Custom $(CORE_INSTRUCTION)
 
 clean:
-	rm -rf $(DIR)
-	rm -f *.debugTrace
-	rm -f *.logTrace
+	-rm -rf cores/$(VARIANT)
+	-rm -rf verilator/$(DIR)
+	-rm -f *.debugTrace
+	-rm -f *.logTrace
