@@ -273,15 +273,17 @@ object Controller {
       // Table for each version with variants compared
       val compareTables = for ((version, data) <- groupedByVersion)
         yield {
-          val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 11) * numVariants) + "+\n"
+          val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * (maxVariantLength + 2)) * numVariants) + "+\n"
           val header =
-            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _, _) => f"$v%9s").mkString(" | ") + " |\n"
+            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _, _) => v ^ maxVariantLength).mkString(
+              " | "
+            ) + " |\n"
           val table = (for ((variant, value1) <- data)
             yield s"| %${maxVariantLength}s | %s |".format(
               variant,
               data.map((va, value2) =>
                 if (value1 == -1 || value2 == -1) "-" ^ 7
-                else f"${value1 * 100.0 / value2}%9.2f"
+                else s"%${maxVariantLength}.2f".format(value1 * 100.0 / value2)
               ).mkString(" | ")
             )).mkString("", "\n", "\n")
           s"$version\n" + sep + header + sep + table + sep
