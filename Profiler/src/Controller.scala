@@ -90,7 +90,7 @@ object Controller {
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
 
     // Prepare a count down latch in pieces
-    countDown <- CountDownLatch.make(tasks.length)
+    countDown <- CountDownLatch.make[String](tasks.length)
 
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
     ref <- Ref.make[SharedState](SharedState(tasks.map(_ -> TaskInformation()).toMap, TaskCommon(countDown = countDown)))
@@ -217,16 +217,26 @@ object Controller {
       case task -> (data: GroupedInstructions) => ZIO.succeed(task -> data.map(_._2.map(_._2.sum.toLong).sum).sum)
     })
 
+    val synthesisData =
+      if (config.doSynthesis) (
+        for {
+          taskToHash <-
+            ZIO.collectAllPar(data.map(p => readFromFile(s"${p._1.dataFile}-coreHash").map(f => p._1 -> f.toList.head)))
+          synth <- Synthesis.requestSynthesisResults(taskToHash.map(_._2))
+        } yield taskToHash.map((t, h) => t -> (synth.get(h))).collect { case (p -> Some(v)) => p -> v }.toMap
+      ).mapError(e => s"Could not retrieve synthesis data because: $e")
+      else ZIO.succeed(Map())
+
     // Extract the clock cycles
-    extractedData.map { data =>
+    (synthesisData <*> extractedData).map { (synth, data) =>
 
       val variantToIndex = config.variants.zipWithIndex.toMap
 
       // Group data: Line / Variant => Column / Version => Data
-      val groupedByVariant: List[(String, List[(String, Long)])] = data
+      val groupedByVariant: List[(String, List[(String, Long)], Option[((Double, Int), (Double, Int))])] = data
         .groupBy(_._1.variant.get)
-        .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1))
-        .toList.sortBy((v, _) => variantToIndex(v))
+        .map((key, value) => (key, value.map((t, data) => (t.version, data)).sortBy(_._1), synth.get(value.head._1)))
+        .toList.sortBy((v, _, _) => variantToIndex(v))
 
       // Group data: Version => Variant => Data
       val groupedByVersion: List[(String, List[(String, Long)])] = data
@@ -235,16 +245,26 @@ object Controller {
         .toList.sortBy(_._1)
 
       // Build report
-      val maxVariantLength = groupedByVariant.map(_._1.length).max
+      val maxVariantLength = math.max(groupedByVariant.map(_._1.length).max, 3)
       val numVersions = groupedByVersion.length
       val numVariants = groupedByVariant.length
-      val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 15) * numVersions) + "+\n"
-      val header = "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
-      val table = (for ((variant, data) <- groupedByVariant)
+
+      val sep =
+        "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 15) * numVersions)
+          + (if (config.doSynthesis) ("+" + "-" * 10 + "+" + "-" * 11 + "+" + "-" * 11 + "+" + "-" * 12) else "") + "+\n"
+      val header = "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ")
+        + (if (config.doSynthesis) " | Area MHz | Area BELs | Speed Mhz | Speed BELs" else "") + " |\n"
+      val table = (for ((variant, data, synth) <- groupedByVariant)
         yield s"| %${maxVariantLength}s | %s |".format(
           variant,
-          data.map(d => if (d._2 == -1) "-" ^ 13 else f"${d._2}%13s").mkString(" | ")
-        ))
+          data.map((_, cycles) => if (cycles == -1) "-" ^ 13 else f"$cycles%13s").mkString(" | "),
+          synth.map(_.toString).getOrElse("-" * 13)
+        ) + (if (config.doSynthesis) synth match {
+               case Some((areaFreq, areaSize), (speedFreq, speedSize)) =>
+                 f" ${areaFreq}%8.3f | ${areaSize}%9d | ${speedFreq}%9.3f | ${speedSize}%10d |"
+               case None => f" ${"-" * 8}%s | ${"-" * 9}%s | ${"-" * 9}%s | ${"-" * 10}%s |"
+             }
+             else ""))
         .mkString("", "\n", "\n")
 
       // Table with all measurments
@@ -255,7 +275,7 @@ object Controller {
         yield {
           val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 11) * numVariants) + "+\n"
           val header =
-            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _) => f"$v%9s").mkString(" | ") + " |\n"
+            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _, _) => f"$v%9s").mkString(" | ") + " |\n"
           val table = (for ((variant, value1) <- data)
             yield s"| %${maxVariantLength}s | %s |".format(
               variant,
@@ -269,7 +289,7 @@ object Controller {
 
       resultTable + "\n\n" + compareTables.mkString("\n")
     } >>= writeToFile(s"results/${data.head._1.group}/${config.prefixed("Benchmark")}.txt")
-  }
+  }.mapError(e => s"Wiriting the benchmark failed because: $e")
 
   /** Converts the symbol table into JSON and writes it in the data folder. */
   def dumpSymbolTable(data: Map[String, String], json: String): Task[Unit] =

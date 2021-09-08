@@ -17,4 +17,6 @@ cores
 Tests
 Scripts
 
+# User's files
 MyMakefile.mk
+Config.json

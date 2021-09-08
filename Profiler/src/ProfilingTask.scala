@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 
 import zio.{IO, UIO, ZIO, URIO, clock, Ref, Semaphore, Promise}
 import zio.blocking.Blocking
+import zio.clock.Clock
 
 import better.files.File
 
@@ -32,7 +33,7 @@ final case class ProfilingTask(
     semBuild: Semaphore,
     semProfile: Semaphore,
     semAnalyse: Semaphore
-  ): ZIO[Blocking, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
+  ): ZIO[Blocking & Clock, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
     (preflighting(variant, semBuild, ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
       *> profile(fileName, ref, semProfile) *> setState(ref, TaskState.AnalysisReady)
@@ -98,8 +99,14 @@ final case class ProfilingTask(
     // Build profiler and executable
     _ <- setState(ref, TaskState.Building)
     _ <- build(true, Some(reqs.##.abs.toString), ref)
+
+    // Note core hash
+    _ <- (ZIO.effect(File(s"cores/${reqs.##.abs.toString}/VexRiscv.v").sha256) >>= writeToFile(s"$dataFile-coreHash"))
+      .mapError(e => s"Could not save core hash because of: $e")
+
   } yield ()
 
+  /** Construct cores and simulations. */
   def constructCores(sem: Semaphore, ref: SharedRef) = for {
     shared <- ref.get
     map = shared.individual
@@ -112,6 +119,7 @@ final case class ProfilingTask(
     ).ignore
     // Build profiler
     _ <- ZIO.foreachPar_(deps)(d => sem.withPermit(Controller.buildProfilerWithDeps(d.##.abs.toString, config))).ignore
+    _ <- ZIO.when(config.doSynthesis)(Synthesis.requestSynthesis(deps.map(l => s"cores/${l.##.abs}")))
   } yield ()
 
   /** Build the exeutable. */
@@ -244,12 +252,12 @@ type SharedRef = Ref[SharedState]
 final case class SharedState(individual: Map[ProfilingTask, TaskInformation], common: TaskCommon = TaskCommon())
 
 /** Information for / over all tasks. */
-final case class TaskCommon(countDown: CountDownLatch = null)
+final case class TaskCommon(countDown: CountDownLatch[String] = null)
 
 /** Information for a individual task. */
 final case class TaskInformation(
   state: TaskState = TaskState.Initial,
   elfHash: String = "",
-  coreHash: String = "",
+  depHash: String = "",
   dependencies: List[String] = Nil
 )

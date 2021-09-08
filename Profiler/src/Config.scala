@@ -10,6 +10,7 @@ final case class Config(
   doAnalysis: Boolean,
   doBenchmark: Boolean,
   doPreflight: Boolean,
+  doSynthesis: Boolean,
   manualInputs: List[String],
   visualize: Boolean,
   take: Option[Int],
@@ -53,7 +54,8 @@ final case class Config(
       val actions =
         (if (doProfile) List("profiling") else Nil) ++
           (if (doAnalysis) List("analysis") else Nil) ++
-          (if (doBenchmark) List("benchmark") else Nil)
+          (if (doBenchmark) List("benchmark") else Nil) ++
+          (if (doSynthesis) List("synthesis") else Nil)
 
       IO.succeed(s"Conducting ${actions.mkString(", ")} on ${predefinedTasks.length + manualInputs.length} targets"
         + ((prefix, postfix) match {
@@ -94,6 +96,7 @@ object Config {
     val doAnalysis = args.contains("analyse") || args.contains("analyze") || args.contains("process")
     val doProfile = args.contains("profile") || args.contains("process")
     val doPreflight = args.contains("preflight")
+    val doSynthesis = args.contains("synth") || args.contains("synthesis")
     val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
 
     // Reduce the number of versions in predefined tasks to profile
@@ -144,6 +147,7 @@ object Config {
       doAnalysis,
       doBenchmark,
       doPreflight,
+      doSynthesis,
       manualInputs,
       visualize,
       take,
