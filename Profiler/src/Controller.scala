@@ -40,14 +40,24 @@ object Controller {
 
   /** Calls the profiler's makefile with the given arguments if profiling is needed. */
   def buildProfiler(config: Config): ZIO[Console & Blocking, String, Unit] =
-    ZIO.when(config.doProfile) {
-      // Invoke makefile to build profiler and request additional targets
+    ZIO.when(config.doProfile && !config.doPreflight) {
+      // Invoke makefile to build profiler and request additional targets for each variant
       for {
         _ <- reportStatus("Profiler")("Building verilator simulation")
         r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
           .mapError(e => s"The profiler could not be build: $e")
       } yield ()
     }
+
+  /** */
+  def buildProfilerWithDeps(variant: String, config: Config) =
+    runForReturn(
+      "make",
+      "all",
+      config.profilerMakeFlags.mkString(" "),
+      s"VARIANT=$variant",
+      "PREFLIGHT=Y"
+    ).mapError(e => s"The profiler could not be build: $e")
 
   /** Executes all tasks in parallel. */
   def execute(config: Config): URIO[Console & Blocking & Clock, Unit] = {
@@ -73,20 +83,25 @@ object Controller {
     } yield ()
   }
 
-  /** */
+  /** Handles the execution of all requested tasks. */
   def executeTasks(
     tasks: List[ProfilingTask],
     config: Config
   ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
+
+    // Prepare a count down latch in pieces
+    countDown <- CountDownLatch.make[String](tasks.length)
+
     // The fiber ref is set to be only modied by the current fiber and is not inherited, used by the logger
-    ref <- Ref.make[Map[ProfilingTask, TaskState -> String]](tasks.map(_ -> (TaskState.Initial, "")).toMap)
+    ref <- Ref.make[SharedState](SharedState(tasks.map(_ -> TaskInformation()).toMap, TaskCommon(countDown = countDown)))
 
     // Semaphores for controlling the number of tasks in the same phase to prevent RAM overflows etc.
+    semBuild <- Semaphore.make(JRuntime.getRuntime().availableProcessors() >> 1 - 1)
     semProfile <- Semaphore.make(config.profileThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
     semAnalyse <- Semaphore.make(config.analysisThreads.getOrElse(JRuntime.getRuntime().availableProcessors() - 1))
 
     // Actual execution in parallel
-    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semProfile, semAnalyse)).fork
+    executor <- ZIO.partitionPar(tasks)(_.execute(config, ref, semBuild, semProfile, semAnalyse)).fork
 
     // Start logging
     start <- currentTime(TimeUnit.SECONDS)
@@ -112,17 +127,18 @@ object Controller {
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
-    ref: Ref[Map[ProfilingTask, TaskState -> String]],
+    ref: SharedRef,
     begin: Long,
     tasks: Int
   ): ZIO[Clock & Console, String, Unit] = for {
     // Unwrap data
-    states <- ref.get
+    shared <- ref.get
+    states = shared.individual
 
     // Count states
     countedStates = states.foldLeft(Map[TaskState, Int]()) {
-      case (map, (_, (state, _))) =>
-        map.updatedWith(state) {
+      case (map, (_, info)) =>
+        map.updatedWith(info.state) {
           case None    => Some(1)
           case Some(c) => Some(c + 1)
         }
@@ -140,7 +156,7 @@ object Controller {
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */
-  def profile(hexFile: String, dataFile: String, config: Config): ZIO[Blocking, String, Unit] = for {
+  def profile(hexFile: String, dataFile: String, config: Config, variant: Option[String]): ZIO[Blocking, String, Unit] = for {
     // Verify existence of files
     _ <- IO.when(!hexFile.endsWith("hex"))(IO.fail(s"The given file '$hexFile' has no .hex extension."))
     _ <- IO.effect(File(hexFile).exists).flatMap(if (_) ZIO.unit else ZIO.fail(s"File '$hexFile' does not exist."))
@@ -150,13 +166,18 @@ object Controller {
     symbolTable <- makeSymbolTable(hexFile.replace(".hex", ".elf"))
     _ <- dumpSymbolTable(symbolTable, s"$dataFile-sym.json").mapError(e => s"Symbol table could not be dumped because: $e")
 
+    // Assemble the path to the simulation executable
+    executable =
+      if (config.doPreflight) s"./verilator/obj_dir${variant.map(v => s"_$v").getOrElse("")}/VVexRiscv"
+      else "./verilator/obj_dir/VVexRiscv"
+
     // Do the actual profiling
     _ <- config.debuggedFunction.match {
       case None =>
         // Call profiler
         if (config.detailed)
           runForFileOutput(dataFile)(
-            "./obj_dir/VVexRiscv",
+            executable,
             hexFile,
             config.bootAt,
             "1"
@@ -164,7 +185,7 @@ object Controller {
         else
           runForFileOutput(dataFile)(
             (List(
-              "./obj_dir/VVexRiscv",
+              executable,
               hexFile,
               config.bootAt,
               "3"
@@ -177,7 +198,7 @@ object Controller {
           case Some(address -> _) =>
             // Call profiler
             runForFileOutput(dataFile)(
-              "./obj_dir/VVexRiscv",
+              executable,
               hexFile,
               config.bootAt,
               "2",
@@ -196,16 +217,26 @@ object Controller {
       case task -> (data: GroupedInstructions) => ZIO.succeed(task -> data.map(_._2.map(_._2.sum.toLong).sum).sum)
     })
 
+    val synthesisData =
+      if (config.doSynthesis) (
+        for {
+          taskToHash <-
+            ZIO.collectAllPar(data.map(p => readFromFile(s"${p._1.dataFile}-coreHash").map(f => p._1 -> f.toList.head)))
+          synth <- Synthesis.requestSynthesisResults(taskToHash.map(_._2))
+        } yield taskToHash.map((t, h) => t -> (synth.get(h))).collect { case (p -> Some(v)) => p -> v }.toMap
+      ).mapError(e => s"Could not retrieve synthesis data because: $e")
+      else ZIO.succeed(Map())
+
     // Extract the clock cycles
-    extractedData.map { data =>
+    (synthesisData <*> extractedData).map { (synth, data) =>
 
       val variantToIndex = config.variants.zipWithIndex.toMap
 
       // Group data: Line / Variant => Column / Version => Data
-      val groupedByVariant: List[(String, List[(String, Long)])] = data
+      val groupedByVariant: List[(String, List[(String, Long)], Option[((Double, Int), (Double, Int))])] = data
         .groupBy(_._1.variant.get)
-        .map((key, value) => key -> value.map((t, data) => t.version -> data).sortBy(_._1))
-        .toList.sortBy((v, _) => variantToIndex(v))
+        .map((key, value) => (key, value.map((t, data) => (t.version, data)).sortBy(_._1), synth.get(value.head._1)))
+        .toList.sortBy((v, _, _) => variantToIndex(v))
 
       // Group data: Version => Variant => Data
       val groupedByVersion: List[(String, List[(String, Long)])] = data
@@ -214,16 +245,26 @@ object Controller {
         .toList.sortBy(_._1)
 
       // Build report
-      val maxVariantLength = groupedByVariant.map(_._1.length).max
+      val maxVariantLength = math.max(groupedByVariant.map(_._1.length).max, 3)
       val numVersions = groupedByVersion.length
       val numVariants = groupedByVariant.length
-      val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 15) * numVersions) + "+\n"
-      val header = "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ") + " |\n"
-      val table = (for ((variant, data) <- groupedByVariant)
+
+      val sep =
+        "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 15) * numVersions)
+          + (if (config.doSynthesis) ("+" + "-" * 10 + "+" + "-" * 11 + "+" + "-" * 11 + "+" + "-" * 12) else "") + "+\n"
+      val header = "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVersion.map((v, _) => f"$v%13s").mkString(" | ")
+        + (if (config.doSynthesis) " | Area MHz | Area BELs | Speed Mhz | Speed BELs" else "") + " |\n"
+      val table = (for ((variant, data, synth) <- groupedByVariant)
         yield s"| %${maxVariantLength}s | %s |".format(
           variant,
-          data.map(d => if (d._2 == -1) "-" ^ 13 else f"${d._2}%13s").mkString(" | ")
-        ))
+          data.map((_, cycles) => if (cycles == -1) "-" ^ 13 else f"$cycles%13s").mkString(" | "),
+          synth.map(_.toString).getOrElse("-" * 13)
+        ) + (if (config.doSynthesis) synth match {
+               case Some((areaFreq, areaSize), (speedFreq, speedSize)) =>
+                 f" ${areaFreq}%8.3f | ${areaSize}%9d | ${speedFreq}%9.3f | ${speedSize}%10d |"
+               case None => f" ${"-" * 8}%s | ${"-" * 9}%s | ${"-" * 9}%s | ${"-" * 10}%s |"
+             }
+             else ""))
         .mkString("", "\n", "\n")
 
       // Table with all measurments
@@ -232,15 +273,17 @@ object Controller {
       // Table for each version with variants compared
       val compareTables = for ((version, data) <- groupedByVersion)
         yield {
-          val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * 11) * numVariants) + "+\n"
+          val sep = "+" + ("-" * (maxVariantLength + 2)) + (("+" + "-" * (maxVariantLength + 2)) * numVariants) + "+\n"
           val header =
-            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _) => f"$v%9s").mkString(" | ") + " |\n"
+            "| " + ("Var" ^ maxVariantLength) + " | " + groupedByVariant.map((v, _, _) => v ^ maxVariantLength).mkString(
+              " | "
+            ) + " |\n"
           val table = (for ((variant, value1) <- data)
             yield s"| %${maxVariantLength}s | %s |".format(
               variant,
               data.map((va, value2) =>
                 if (value1 == -1 || value2 == -1) "-" ^ 7
-                else f"${value1 * 100.0 / value2}%9.2f"
+                else s"%${maxVariantLength}.2f".format(value1 * 100.0 / value2)
               ).mkString(" | ")
             )).mkString("", "\n", "\n")
           s"$version\n" + sep + header + sep + table + sep
@@ -248,7 +291,7 @@ object Controller {
 
       resultTable + "\n\n" + compareTables.mkString("\n")
     } >>= writeToFile(s"results/${data.head._1.group}/${config.prefixed("Benchmark")}.txt")
-  }
+  }.mapError(e => s"Wiriting the benchmark failed because: $e")
 
   /** Converts the symbol table into JSON and writes it in the data folder. */
   def dumpSymbolTable(data: Map[String, String], json: String): Task[Unit] =

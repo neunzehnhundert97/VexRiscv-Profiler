@@ -6,6 +6,7 @@ import zio.clock
 import zio.*
 
 import java.util.concurrent.TimeUnit
+import java.util.Locale
 
 object Main extends zio.App {
 
@@ -18,6 +19,7 @@ object Main extends zio.App {
       printHelp
     else
       for {
+        _ <- ZIO.succeed(Locale.setDefault(Locale.ENGLISH))
         start <- clock.currentTime(TimeUnit.SECONDS)
         _ <- Controller(args)
         end <- clock.currentTime(TimeUnit.SECONDS)
@@ -36,6 +38,7 @@ object Main extends zio.App {
       |  profile                : Perform the profiling
       |  analysis               : Perform a analysis
       |  process                : Perform profiling, analysis with graphical output, and benchmark if variants are given
+      |  synth[esis]            : Peforms a sythesis (which has to be customized) 
       |  benchmark              : Perform a benchmark, only usefull with one target and variants
       |
       |
@@ -53,6 +56,7 @@ object Main extends zio.App {
       |Options for building/profiling
       |
       |  detailed               : Switches to the more detailed profiling mode with overhead
+      |  preflight              : Use a preflight build to perform core customization
       |  profilerFlags=[flags]  : Flags that will be given to the profilers makefile
       |  bootAt=[address]       : Address to start execution at (default 80000000)
       |  profileThreads=[n]     : Ensures maximal n threads are used for profiling (default is the number of logical cores minus one)

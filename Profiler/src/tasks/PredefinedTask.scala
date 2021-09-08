@@ -41,7 +41,8 @@ final case class PredefinedTask(
   hexFile: (String, String) => String,
   versions: List[String],
   build: Boolean = false,
-  clean: Boolean = false
+  clean: Boolean = false,
+  preflight: Boolean = false
 ) {
 
   /** Generates tasks for the profiler to execute. */
@@ -63,7 +64,7 @@ final case class PredefinedTask(
     // Generate tasks
     if (config.variants.isEmpty)
       for (version <- selectedVersions)
-        yield ProfilingTask(name, s"$name $version", hexFile(version, ""), version, buildTarget, None, None, config)
+        yield ProfilingTask(name, s"$name $version", hexFile(version, ""), version, buildTarget, None, None, preflight, config)
     else
       for (version <- selectedVersions; variant <- config.variants)
         yield {
@@ -75,6 +76,7 @@ final case class PredefinedTask(
             buildTarget,
             cleanTarget,
             Some(variant),
+            preflight,
             config
           )
         }

@@ -2351,6 +2351,7 @@ public:
 			staticMutex.lock();
 			cycles += instanceCycles;
 			staticMutex.unlock();
+			printf("CAUSE: %d\n", top->VexRiscv->CsrPlugin_mcause_exceptionCode);
 			failed = true;
 		}
 

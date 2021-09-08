@@ -53,7 +53,39 @@ def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String
   ).exitCode.discard
 
 enum TaskState derives CanEqual {
-  case Initial, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
+  case Initial, Preflight, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
+}
+
+class CountDownLatch[E] private (counter: Ref[Int], promise: Promise[E, Unit]) {
+
+  /** Counts one down and waits for completion */
+  def await = for {
+    count <- counter.updateAndGet(_ - 1)
+    _ <- if (count > 0) promise.await else promise.succeed(())
+  } yield ()
+
+  /** Counts one down and waits for completion. Additionally, the fiber hitting zero performs a given effect before releasing. */
+  def awaitForEffect[R](e: ZIO[R, E, Any]) = for {
+    count <- counter.updateAndGet(_ - 1)
+    _ <-
+      if (count > 0) promise.await
+      else for {
+        out <- e.either
+        _ <- out match {
+          case Right(_) =>
+            promise.succeed(())
+          case Left(e) => promise.fail(e)
+        }
+      } yield ()
+  } yield ()
+}
+
+object CountDownLatch {
+  def make[E](number: Int) = for {
+    counter <- Ref.make(number)
+    promise <- Promise.make[E, Unit]
+  } yield new CountDownLatch[E](counter, promise)
+
 }
 
 type ->[+A, +B] = Tuple2[A, B]

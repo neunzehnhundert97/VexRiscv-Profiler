@@ -9,6 +9,8 @@ final case class Config(
   doProfile: Boolean,
   doAnalysis: Boolean,
   doBenchmark: Boolean,
+  doPreflight: Boolean,
+  doSynthesis: Boolean,
   manualInputs: List[String],
   visualize: Boolean,
   take: Option[Int],
@@ -46,11 +48,16 @@ final case class Config(
       IO.fail("A benchmark may currently only be conducted together with an analysis.")
     else if ((take.nonEmpty || drop.nonEmpty) && select.nonEmpty)
       IO.fail("Select can only be used without drop and take.")
+    else if (!doProfile && doPreflight)
+      IO.fail("Preflight mode can only be used with profiling mode.")
+    else if (doPreflight && variants.isEmpty)
+      IO.fail("Preflight mode can only be used with at least one variant.")
     else {
       val actions =
         (if (doProfile) List("profiling") else Nil) ++
           (if (doAnalysis) List("analysis") else Nil) ++
-          (if (doBenchmark) List("benchmark") else Nil)
+          (if (doBenchmark) List("benchmark") else Nil) ++
+          (if (doSynthesis) List("synthesis") else Nil)
 
       IO.succeed(s"Conducting ${actions.mkString(", ")} on ${predefinedTasks.length + manualInputs.length} targets"
         + ((prefix, postfix) match {
@@ -59,7 +66,8 @@ final case class Config(
           case None -> Some(post)      => s"\nUsing pstfix '$post'"
           case Some(pre) -> Some(post) => s"\nUsing prefix '$pre' and postfix '$post'"
         })
-        + (if (doProfile) if (detailed) "\nProfiling in detailed mode" else "\nProfiling in normal mode" else ""))
+        + (if (doProfile) if (detailed) "\nProfiling in detailed mode" else "\nProfiling in normal mode" else "")
+        + (if (doPreflight) " with preflight" else ""))
     }
   }
 
@@ -89,6 +97,8 @@ object Config {
     // Boolean arguments
     val doAnalysis = args.contains("analyse") || args.contains("analyze") || args.contains("process")
     val doProfile = args.contains("profile") || args.contains("process")
+    val doPreflight = args.contains("preflight")
+    val doSynthesis = args.contains("synth") || args.contains("synthesis")
     val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
 
     // Reduce the number of versions in predefined tasks to profile
@@ -140,6 +150,8 @@ object Config {
       doProfile,
       doAnalysis,
       doBenchmark,
+      doPreflight,
+      doSynthesis,
       manualInputs,
       visualize,
       take,

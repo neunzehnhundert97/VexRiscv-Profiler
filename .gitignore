@@ -5,12 +5,18 @@
 
 # Output files and folders
 out
-obj_dir
+verilator
 data
 results
-VexRiscv.v
+VexRiscv*.v
 instructions_s.csv
+*.jar
+cores
 
 # Testing ground
 Tests
 Scripts
+
+# User's files
+MyMakefile.mk
+Config.json

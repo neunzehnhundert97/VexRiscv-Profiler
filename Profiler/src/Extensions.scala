@@ -48,3 +48,11 @@ extension [R, E, A](zio: ZIO[R, E, A]) {
   def >>[R2, E2, A2, D](next: ZIO[R2, E2, A2]) =
     zio.flatMap(_ => next)
 }
+
+extension [K, V](map: Map[K, V]) {
+  def updatedWithDefault(key: K, default: V, update: V => V): Map[K, V] =
+    map.updatedWith(key) {
+      case None    => Some(default)
+      case Some(v) => Some(update(v))
+    }
+}
