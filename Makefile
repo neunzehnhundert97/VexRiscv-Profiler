@@ -58,9 +58,6 @@ verilator/$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp
 verilator/$(DIR)/VVexRiscv: verilator/$(DIR)/VVexRiscv.cpp
 	$(MAKE)  -j${THREAD_COUNT} -C verilator/$(DIR)/ -f VVexRiscv.mk VVexRiscv
 
-allCores:
-	java -jar Trinity.jar Custom $(CORE_INSTRUCTION)
-
 clean:
 	-rm -rf cores/$(DEP_HASH)
 	-rm -rf verilator/$(DIR)
