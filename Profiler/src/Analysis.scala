@@ -46,6 +46,11 @@ object Analysis {
     import config.*
 
     for {
+      // Check validity of traces
+      lastLines <- runForReturn("tail", "-n 2", log.pathAsString).map(_._2)
+        .mapError(e => s"Could not verify trace validity because: $e")
+      _ <- ZIO.when(!lastLines.contains("SUCCESS"))(ZIO.fail("Execution reportet test failure"))
+
       // Read measurements and parse them into case classes
       data <- IO.effect(log.lineIterator.map(FunctionMeasurement.createFromTrace).collect { case Some(m) => m })
         .mapError(_ => "Could not read traces")
