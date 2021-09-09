@@ -245,7 +245,7 @@ object Controller {
         .toList.sortBy(_._1)
 
       // Build report
-      val maxVariantLength = math.max(groupedByVariant.map(_._1.length).max, 3)
+      val maxVariantLength = math.max(groupedByVariant.map(_._1.length).max, 6)
       val numVersions = groupedByVersion.length
       val numVariants = groupedByVariant.length
 
