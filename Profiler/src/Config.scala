@@ -11,6 +11,7 @@ final case class Config(
   doBenchmark: Boolean,
   doPreflight: Boolean,
   doSynthesis: Boolean,
+  debug: Boolean,
   manualInputs: List[String],
   visualize: Boolean,
   take: Option[Int],
@@ -100,6 +101,7 @@ object Config {
     val doPreflight = args.contains("preflight")
     val doSynthesis = args.contains("synth") || args.contains("synthesis")
     val visualize = args.contains("graph") || args.contains("visualize") || args.contains("process")
+    val debug = args.contains("debug")
 
     // Reduce the number of versions in predefined tasks to profile
     val take = extractArgumentOption(args, "take", _.toInt)
@@ -152,6 +154,7 @@ object Config {
       doBenchmark,
       doPreflight,
       doSynthesis,
+      debug,
       manualInputs,
       visualize,
       take,
