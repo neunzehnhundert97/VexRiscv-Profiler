@@ -47,6 +47,13 @@ object Controller {
         r <- runForReturn("make", "all", config.profilerMakeFlags.mkString(" "))
           .mapError(e => s"The profiler could not be build: $e")
       } yield ()
+    } *> ZIO.when(config.doProfile && config.doPreflight) {
+      // Invoke makefile to build profiler and request additional targets for each variant
+      for {
+        _ <- reportStatus("Profiler")("Cleaning verilator simulation")
+        r <- runForReturn("make", "clean")
+          .mapError(e => s"The profiler could not be build: $e")
+      } yield ()
     }
 
   /** */
