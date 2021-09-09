@@ -31,8 +31,13 @@ def reportSuccess(reporter: String)(msg: String) =
 def writeToFile(fileName: String)(data: String): Task[Unit] =
   IO.effect(File(fileName).createFileIfNotExists(true).writeBytes(data.iterator.map(_.toByte))).discard
 
+/** Reads a given file and streams contents as a line iterator. */
 def readFromFile(fileName: String): Task[Iterator[String]] =
   IO.effect(File(fileName).lineIterator)
+
+  /** Reads a given file and returns all content as a single string. */
+  def readAllFromFile(fileName: String): Task[String] =
+    IO.effect(File(fileName).contentAsString)
 
 /** Runs the given command and returns a tuple of (exit code, stdout, stderr). */
 def runForReturn(args: String*): ZIO[Blocking, CommandError, (Int, String, String)] = for {
