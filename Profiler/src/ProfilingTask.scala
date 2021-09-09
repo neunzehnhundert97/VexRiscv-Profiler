@@ -99,6 +99,10 @@ final case class ProfilingTask(
     // Build profiler and executable
     _ <- setState(ref, TaskState.Building)
     _ <- build(true, Some(reqs.##.abs.toString), ref)
+      .mapError(e =>
+        if (e.contains("#error Missing:")) s"After preflight there are still unmet dependencies:\n$e"
+        else s"Executable could not be build because $e"
+      )
 
     // Note core hash
     _ <- (ZIO.effect(File(s"cores/${reqs.##.abs.toString}/VexRiscv.v").sha256) >>= writeToFile(s"$dataFile-coreHash"))
