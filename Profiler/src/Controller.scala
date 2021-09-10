@@ -57,12 +57,12 @@ object Controller {
     }
 
   /** */
-  def buildProfilerWithDeps(variant: String, config: Config) =
+  def buildProfilerWithDeps(depHash: String, config: Config) =
     runForReturn(
       "make",
       "all",
       config.profilerMakeFlags.mkString(" "),
-      s"VARIANT=$variant",
+      s"DEP_HASH=$depHash",
       "PREFLIGHT=Y"
     ).mapError(e => s"The profiler could not be build: $e")
 

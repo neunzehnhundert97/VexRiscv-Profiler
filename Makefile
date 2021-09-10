@@ -6,7 +6,6 @@ DBUS?=CACHED
 DBUS_DATA_WIDTH?=32
 THREAD_COUNT?=$(shell nproc)
 MEASUREMENTS?=N
-DEP_HASH?=$(VARIANT)
 
 include MyMakefile.mk
 
@@ -39,17 +38,21 @@ endif
 ifeq ($(PREFLIGHT),)
 ADD_INCLUDE :=
 else
+ifeq ($(DEP_HASH),)
+ADD_INCLUDE :=../../Profiling/cores
+else
 ADD_INCLUDE :=../../Profiling/cores/$(DEP_HASH)
+endif
 endif
 
 
 all: verilator/$(DIR)/VVexRiscv | folder
 
 folder:
-	mkdir -p cores/$(DEP_HASH)
+	mkdir -p cores
 	mkdir -p verilator
-	touch cores/$(DEP_HASH)/instructions_c.h
-	touch cores/$(DEP_HASH)/instructions.py
+	touch cores/instructions_c.h
+	touch cores/instructions.py
 
 verilator/$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp
 	cp ${TARGET_CORE}*.bin . | true

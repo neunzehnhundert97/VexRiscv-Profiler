@@ -120,9 +120,9 @@ final case class ProfilingTask(
       "make",
       "allCores",
       s"CORE_INSTRUCTION=${deps.map(l => s"cores/${l.##.abs}+${l.mkString(":")}").mkString(" ")}"
-    ).ignore
+    ).mapError(e => s"Could not build cores because: $e")
     // Build profiler
-    _ <- ZIO.foreachPar_(deps)(d => sem.withPermit(Controller.buildProfilerWithDeps(d.##.abs.toString, config))).ignore
+    _ <- ZIO.foreachPar_(deps)(d => sem.withPermit(Controller.buildProfilerWithDeps(d.##.abs.toString, config)))
     _ <- ZIO.when(config.doSynthesis)(Synthesis.requestSynthesis(deps.map(l => s"cores/${l.##.abs}")))
   } yield ()
 
