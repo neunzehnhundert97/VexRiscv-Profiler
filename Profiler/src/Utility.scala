@@ -23,6 +23,10 @@ def reportUpdatedStatus(reporter: String)(msg: String) =
 def reportError(reporter: String)(msg: String) =
   putStrLn(Console.RED + reporter + Console.RESET + ": " + msg).ignore
 
+/** Prints a yellow error message to stdout. */
+def reportWarning(reporter: String)(msg: String) =
+  putStrLn(Console.YELLOW + reporter + Console.RESET + ": " + msg).ignore
+
 /** Prints a green success message to stdout. */
 def reportSuccess(reporter: String)(msg: String) =
   putStrLn(Console.GREEN + reporter + Console.RESET + ": " + msg).ignore

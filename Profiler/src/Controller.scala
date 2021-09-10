@@ -119,11 +119,16 @@ object Controller {
     (errors, success) = res
     _ <- ZIO.collectAll(errors.map { (task, error) =>
       val lines = error.split("\n")
-      if (lines.length == 1)
-        reportError(task.name)(error)
-      else
-        reportError(task.name)(s"Error message with ${lines.length} lines was dumped to ${task.resultFile}.error")
-          *> writeToFile(task.resultFile + ".error")(error).ignore
+      for {
+        state <- ref.map(_.individual(task).state).get
+        report = if (state == TaskState.Stopped) reportWarning(task.name) else reportError(task.name)
+        _ <-
+          if (lines.length == 1)
+            report(error)
+          else
+            report(s"Error message with ${lines.length} lines was dumped to ${task.resultFile}.error")
+              *> writeToFile(task.resultFile + ".error")(error).ignore
+      } yield ()
     })
     _ <- logger.interrupt
   } yield success.collect { case Some(a) => a }.toList
