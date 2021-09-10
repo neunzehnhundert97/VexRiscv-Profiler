@@ -38,15 +38,16 @@ final case class ProfilingTask(
     (preflighting(variant, semBuild, ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
       *> profile(fileName, ref, semProfile) *> setState(ref, TaskState.AnalysisReady)
       *> analyze(fileName, ref, semAnalyse) <* setState(ref, TaskState.Finished))
-      .ensuring(clean.ignore *> cleanPreflight.ignore)
+      .ensuring(clean.ignore)
       .mapError(e => this -> e)
-      .tapError(_ => setState(ref, TaskState.Failed))
+      // When the task fails, set it to failed if its current state is not already a final state
+      .tapError(_ => ZIO.whenM(ref.map(!_.individual(this).state.isFinal).get)(setState(ref, TaskState.Failed)))
 
   /** Performs an initial build request to let the program communicate dependencies on the used core. */
   def preflighting(variant: Option[String], sem: Semaphore, ref: SharedRef) = {
     val wantsPreflight = config.doPreflight && preflight
     for {
-      _ <- ZIO.when(wantsPreflight)(setState(ref, TaskState.Preflight) *> cleanPreflight).ignore
+      _ <- ZIO.when(wantsPreflight)(setState(ref, TaskState.Preflight)).ignore
       result <- build(wantsPreflight, None, ref).either
       _ <- result match {
         // Handle preflight requirements
@@ -161,7 +162,8 @@ final case class ProfilingTask(
       )
       lookAlikes = shared.individual.filter((_, d) => d._2 == hash).map(_._1)
       _ <- ZIO.when(lookAlikes.nonEmpty)(
-        ZIO.fail(s"Other variants (${lookAlikes.mkString(", ")}) have the same hash, this one is therefore stopped")
+        setState(ref, TaskState.Stopped)
+          *> ZIO.fail(s"Other variants (${lookAlikes.mkString(", ")}) have the same hash, this one is therefore stopped")
       )
     } yield ()).catchAll {
       case s: String => ZIO.fail(s)
@@ -204,25 +206,6 @@ final case class ProfilingTask(
             variant.map(v => s"VARIANT=$v").getOrElse("")
           ).mapError(e => s"The executable could not be cleaned: $e")
           _ <- ZIO.when(r._1 != 0)(ZIO.fail("Profiler returned non zero exit code."))
-        } yield ()
-      }
-    case None =>
-      ZIO.unit
-  }
-
-  /** Clean the build files for this specific preflight build. */
-  def cleanPreflight: ZIO[Blocking, String, Unit] = cleanTarget match {
-    case Some(_) =>
-      // Proceed only when a make target exists, profiling was wanted, and cleaning is enbaled
-      ZIO.when(config.doProfile) {
-        for {
-          r <- runForReturn(
-            "make",
-            "clean",
-            config.profilerMakeFlags.mkString(" "),
-            variant.map(v => s"VARIANT=$v").getOrElse("")
-          ).mapError(e => s"The profiler could not be cleaned: $e")
-          _ <- ZIO.when(r._1 != 0)(ZIO.fail("The profiler could not be cleaned due to non zero exit code."))
         } yield ()
       }
     case None =>

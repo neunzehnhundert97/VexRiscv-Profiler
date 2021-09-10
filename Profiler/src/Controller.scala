@@ -135,8 +135,7 @@ object Controller {
     tasks: Int
   ): ZIO[Clock & Console, String, Unit] = for {
     // Unwrap data
-    shared <- ref.get
-    states = shared.individual
+    states <- ref.map(_.individual).get
 
     // Count states
     countedStates = states.foldLeft(Map[TaskState, Int]()) {
@@ -152,10 +151,8 @@ object Controller {
     now <- currentTime(TimeUnit.SECONDS)
     elapsed = now - begin
     _ <- reportUpdatedStatus("Profiler")(s"$elapsed seconds elaspsed, Current State: $printString")
-    _ <-
-      if (states.nonEmpty && states.forall((_, state) => state._1 == TaskState.Finished || state._1 == TaskState.Failed))
-        putStr("\n").ignore *> ZIO.fail("")
-      else ZIO.unit
+    // When all states are final, signal end by setting an error
+    _ <- ZIO.when(states.nonEmpty && states.forall((_, state) => state._1.isFinal))(putStr("\n").ignore *> ZIO.fail(""))
   } yield ()
 
   /** Performs the profiling measurements, expects the executable to be properly built. */

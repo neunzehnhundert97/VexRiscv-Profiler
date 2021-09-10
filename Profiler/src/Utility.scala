@@ -58,7 +58,11 @@ def runForFileOutput(logFile: String, mergeErrors: Boolean = false)(args: String
   ).exitCode.discard
 
 enum TaskState derives CanEqual {
-  case Initial, Preflight, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed
+  case Initial, Preflight, Building, ProfilingReady, Profiling, AnalysisReady, Analysing, Finished, Failed, Stopped
+
+  /** Returns if the current state is a final state that won't change anymore. */
+  def isFinal: Boolean =
+    this.ordinal >= Finished.ordinal
 }
 
 class CountDownLatch[E] private (counter: Ref[Int], promise: Promise[E, Unit]) {
