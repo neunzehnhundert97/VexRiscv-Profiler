@@ -33,7 +33,7 @@ final case class ProfilingTask(
     semBuild: Semaphore,
     semProfile: Semaphore,
     semAnalyse: Semaphore
-  ): ZIO[Blocking & Clock, ProfilingTask -> String, Option[ProfilingTask -> AnalysisResult]] =
+  ): ZIO[Blocking & Clock, ProfilingTask -> String, ProfilingTask -> Option[AnalysisResult]] =
     // Run profiling and analyzis and report occurring errors
     (preflighting(variant, semBuild, ref) *> setState(ref, TaskState.ProfilingReady) *> recordAndCheckHash(ref)
       *> profile(fileName, ref, semProfile) *> setState(ref, TaskState.AnalysisReady)
@@ -113,8 +113,7 @@ final case class ProfilingTask(
 
   /** Construct cores and simulations. */
   def constructCores(sem: Semaphore, ref: SharedRef) = for {
-    shared <- ref.get
-    map = shared.individual
+    map <- ref.map(_.individual).get
     deps = map.values.map(_.dependencies).toList.distinct
     // Build cores
     _ <- runForReturn(
@@ -217,12 +216,12 @@ final case class ProfilingTask(
     fileName: String,
     ref: SharedRef,
     sem: Semaphore
-  ): ZIO[Blocking, String, Option[ProfilingTask -> AnalysisResult]] =
+  ): ZIO[Blocking, String, ProfilingTask -> Option[AnalysisResult]] =
     if (config.doAnalysis)
       sem.withPermit(setState(ref, TaskState.Analysing) *> Analysis(dataFile, elfFile, resultFile, config)
-        .map(a => Some(this -> a)))
+        .map(a => this -> Some(a)))
     else
-      ZIO.none
+      ZIO.succeed(this -> None)
 
   def setState(ref: SharedRef, state: TaskState): UIO[Unit] =
     ref.update(s =>

@@ -87,7 +87,7 @@ object Controller {
   def executeTasks(
     tasks: List[ProfilingTask],
     config: Config
-  ): URIO[Console & Blocking & Clock, List[ProfilingTask -> AnalysisResult]] = for {
+  ): URIO[Console & Blocking & Clock, List[ProfilingTask -> Option[AnalysisResult]]] = for {
 
     // Prepare a count down latch in pieces
     countDown <- CountDownLatch.make[String](tasks.length)
@@ -131,7 +131,7 @@ object Controller {
       } yield ()
     })
     _ <- logger.interrupt
-  } yield success.collect { case Some(a) => a }.toList
+  } yield success.toList ++ errors.map((task, _) => task -> None).toList
 
   /** Prints a self-overwriting line that tells in which phase each fiber is currently in. */
   def reportFibreStatus(
@@ -215,11 +215,12 @@ object Controller {
   } yield ()
 
   /** Generate a comparison of the absolute execution time of the measured task. */
-  def benchmark(data: List[ProfilingTask -> AnalysisResult], config: Config) = {
+  def benchmark(data: List[ProfilingTask -> Option[AnalysisResult]], config: Config) = {
     // Get timing data from analysis result
     val extractedData = ZIO.collectAll(data.map {
-      case task -> (data: CallTreeData)        => ZIO.succeed(task -> data._1.totalTime)
-      case task -> (data: GroupedInstructions) => ZIO.succeed(task -> data.map(_._2.map(_._2.sum.toLong).sum).sum)
+      case task -> Some(data: CallTreeData)        => ZIO.succeed(task -> data._1.totalTime)
+      case task -> Some(data: GroupedInstructions) => ZIO.succeed(task -> data.map(_._2.map(_._2.sum.toLong).sum).sum)
+      case task -> None                            => ZIO.succeed(task -> -1L)
     })
 
     val synthesisData =
@@ -262,7 +263,7 @@ object Controller {
       val table = (for ((variant, data, synth) <- groupedByVariant)
         yield s"| %${maxVariantLength}s | %s |".format(
           variant,
-          data.map((_, cycles) => if (cycles == -1) "-" ^ 13 else f"$cycles%13s").mkString(" | "),
+          data.map((_, cycles) => if (cycles == -1) "-" * 13 else f"$cycles%13s").mkString(" | "),
           synth.map(_.toString).getOrElse("-" * 13)
         ) + (if (config.doSynthesis) synth match {
                case Some((areaFreq, areaSize), (speedFreq, speedSize)) =>
@@ -287,7 +288,7 @@ object Controller {
             yield s"| %${maxVariantLength}s | %s |".format(
               variant,
               data.map((va, value2) =>
-                if (value1 == -1 || value2 == -1) "-" ^ 7
+                if (value1 == -1 || value2 == -1) "-" * maxVariantLength
                 else s"%${maxVariantLength}.2f".format(value1 * 100.0 / value2)
               ).mkString(" | ")
             )).mkString("", "\n", "\n")
