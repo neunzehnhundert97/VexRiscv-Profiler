@@ -35,13 +35,15 @@ DIR:=obj_dir_$(DEP_HASH)
 TARGET_CORE:=cores/$(DEP_HASH)/VexRiscv.v
 endif
 
+CURRENT_DIR := $(shell pwd)
+
 ifeq ($(PREFLIGHT),)
 ADD_INCLUDE :=
 else
 ifeq ($(DEP_HASH),)
-ADD_INCLUDE :=../../Profiling/cores
+ADD_INCLUDE := $(CURRENT_DIR)/cores
 else
-ADD_INCLUDE :=../../Profiling/cores/$(DEP_HASH)
+ADD_INCLUDE := $(CURRENT_DIR)/cores/$(DEP_HASH)
 endif
 endif
 
