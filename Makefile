@@ -46,7 +46,7 @@ endif
 endif
 
 
-all: verilator/$(DIR)/VVexRiscv | folder
+all: verilator/$(DIR)/VVexRiscv
 
 folder:
 	mkdir -p cores
@@ -54,7 +54,7 @@ folder:
 	touch cores/instructions_c.h
 	touch cores/instructions.py
 
-verilator/$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp
+verilator/$(DIR)/VVexRiscv.cpp: ${TARGET_CORE} profile.cpp | folder
 	cp ${TARGET_CORE}*.bin . | true
 	verilator -cc -Mdir verilator/$(DIR) ${TARGET_CORE} --prefix VVexRiscv -O3 -CFLAGS -std=c++11 -LDFLAGS -pthread ${ADDCFLAGS} --gdbbt ${VERILATOR_ARGS} -Wno-UNOPTFLAT -Wno-WIDTH  --exe ../profile.cpp --x-assign unique
 
@@ -66,3 +66,7 @@ clean:
 	-rm -rf verilator/$(DIR)
 	-rm -f *.debugTrace
 	-rm -f *.logTrace
+
+cleanAll:
+	-rm -rf cores
+	-rm -rf verilator
