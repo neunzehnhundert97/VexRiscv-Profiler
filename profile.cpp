@@ -2247,7 +2247,7 @@ public:
 						}
 
 					// Function entered
-					if (index != -1 && top->VexRiscv->lastStagePc == registeredLabels[index] && (functionStack.empty() || functionStack.top() != index))
+					if (index != -1 && top->VexRiscv->lastStagePc - registeredLabels[index] < 8 && (functionStack.empty() || functionStack.top() != index))
 					{
 						printf("E:%08X:%lu\n", registeredLabels[index], instanceCycles);
 						functionStack.push(index);
