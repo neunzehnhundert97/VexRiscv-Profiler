@@ -239,7 +239,7 @@ object Controller {
       val variantToIndex = config.variants.zipWithIndex.toMap
 
       // Group data: Line / Variant => Column / Version => Data
-      val groupedByVariant: List[(String, List[(String, Long)], Option[((Double, Int), (Double, Int))])] = data
+      val groupedByVariant: List[(String, List[(String, Long)], Option[(Option[(Double, Int)], Option[(Double, Int)])])] = data
         .groupBy(_._1.variant.get)
         .map((key, value) => (key, value.map((t, data) => (t.version, data)).sortBy(_._1), synth.get(value.head._1)))
         .toList.sortBy((v, _, _) => variantToIndex(v))
@@ -266,9 +266,13 @@ object Controller {
           data.map((_, cycles) => if (cycles == -1) "-" * 13 else f"$cycles%13s").mkString(" | "),
           synth.map(_.toString).getOrElse("-" * 13)
         ) + (if (config.doSynthesis) synth match {
-               case Some((areaFreq, areaSize), (speedFreq, speedSize)) =>
+               case Some(Some((areaFreq, areaSize)), Some((speedFreq, speedSize))) =>
                  f" ${areaFreq}%8.3f | ${areaSize}%9d | ${speedFreq}%9.3f | ${speedSize}%10d |"
-               case None => f" ${"-" * 8}%s | ${"-" * 9}%s | ${"-" * 9}%s | ${"-" * 10}%s |"
+               case Some(Some((areaFreq, areaSize)), None) =>
+                 f" ${areaFreq}%8.3f | ${areaSize}%9d | ${"-" * 9}%s | ${"-" * 10}%s |"
+               case Some(None, Some((speedFreq, speedSize))) =>
+                 f" ${"-" * 8}%s | ${"-" * 9}%s | ${speedFreq}%9.3f | ${speedSize}%10d |"
+               case None | Some(None, None) => f" ${"-" * 8}%s | ${"-" * 9}%s | ${"-" * 9}%s | ${"-" * 10}%s |"
              }
              else ""))
         .mkString("", "\n", "\n")

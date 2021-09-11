@@ -13,7 +13,8 @@ object Synthesis {
     ZIO.unit
 
   /** Retrieves synthesis results for the given core hashes. */
-  def requestSynthesisResults(hashes: List[String]): ZIO[Blocking, String, Map[String, ((Double, Int), (Double, Int))]] =
+  def requestSynthesisResults(hashes: List[String])
+    : ZIO[Blocking, String, Map[String, (Option[(Double, Int)], Option[(Double, Int)])]] =
     ZIO.succeed(Map())
 
 }
