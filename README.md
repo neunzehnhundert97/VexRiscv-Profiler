@@ -1,5 +1,6 @@
 
-This profiler is part of my masterthesis "Development and Implementation of a Hardware/Software-Codesign for Code-based Cryptography".
+This project is part of my masterthesis "Development and Implementation of a Hardware/Software-Codesign for Code-based Cryptography".
+It is intended to profile and benchmark VexRiscv cores with custom extensions and is build upon the [project's regression tests](https://github.com/SpinalHDL/VexRiscv/tree/master/src/test/cpp/regression).
 
 ## Dependencies
 
